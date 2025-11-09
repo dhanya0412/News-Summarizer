@@ -2,3 +2,6 @@ flask
 flask-cors
 requests
 openai
+python-dotenv
+pymongo
+requests
