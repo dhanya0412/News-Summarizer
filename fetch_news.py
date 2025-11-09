@@ -9,7 +9,7 @@ MONGO_URI = os.getenv(
 )
 DB = os.getenv("MONGO_DB", "News")
 
-RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "your_API_KEY")
+RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "your api key here")
 RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST", "real-time-news-data.p.rapidapi.com")
 
 # map endpoint_path -> collection_name
@@ -133,8 +133,12 @@ for path, coll_name in ENDPOINTS.items():
 
     try:
         coll = db[coll_name]
+        coll.delete_many({})
+        print(f"[{coll_name}] old docs cleared")
+        docs = docs[:50]
         coll.insert_many(docs, ordered=False)
-        print(f"[{coll_name}] inserted {len(docs)} documents")
+        print(f"[{coll_name}] inserted {len(docs)} fresh documents")
+
     except errors.BulkWriteError as bwe:
         details = bwe.details or {}
         inserted = details.get("nInserted")
