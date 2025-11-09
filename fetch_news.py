@@ -1,16 +1,14 @@
 # multi_simple_ingest.py — minimal multi-endpoint ingester (insert all, no doc prints)
 import os, requests
 from pymongo import MongoClient, errors
+from dotenv import load_dotenv
+load_dotenv()
 
-# ---------- config (edit) ----------
-MONGO_URI = os.getenv(
-    "MONGO_URI",
-    "mongodb+srv://sharmaraashi21_db_user:Z4I3wRM2SJbEacvb@cluster0.mxuvera.mongodb.net/"
-)
-DB = os.getenv("MONGO_DB", "News")
 
-RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "your api key here")
-RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST", "real-time-news-data.p.rapidapi.com")
+MONGO_URI = os.getenv( "MONGO_URI")
+DB = os.getenv("MONGO_DB")
+RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
+RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST")
 
 # map endpoint_path -> collection_name
 ENDPOINTS = {
