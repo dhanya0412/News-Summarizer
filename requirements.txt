@@ -5,7 +5,5 @@ openai
 python-dotenv
 pymongo
 requests
-readability-lxml
-beautifulsoup4 
-langdetect
-python-dateutil
+google-generativeai
+scikit-learn
