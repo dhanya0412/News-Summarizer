@@ -438,6 +438,64 @@ def hybrid_prune_dynamic(hits, query_text, idf_map, alpha=0.5, gap_ratio_thresho
 
 
 # ------------------ updated search pipeline ------------------
+def search(query_text, k=None, prune=True, gap_ratio_threshold=3.0,
+           rel_weight=0.6, cred_weight=0.25, recency_weight=0.15):
+    """
+    Combines normalized relevance + credibility + recency for ranking.
+    - k: maximum number of results (None -> return all passing documents)
+    """
+    N, df_map, idf_map = build_index_if_needed(force=False)
+    vocab = set(df_map.keys())
+    vec_q = query_to_ltn_vector(query_text, idf_map, vocab=vocab)
+    if not vec_q:
+        return []
+
+    hits = score_docs_for_query(vec_q, top_k=100)  # get a larger candidate pool
+    if not hits:
+        return []
+
+    max_rel = max(h['relevance'] for h in hits) if hits else 1.0
+
+    for h in hits:
+        rel_norm = h['relevance'] / max_rel if max_rel > 0 else 0.0
+        doc = h['doc']
+
+        # credibility
+        cred = doc.get("credibility")
+        if cred is None:
+            cred, breakdown = compute_doc_credibility(doc)
+            coll.update_one({"_id": doc["_id"]}, {"$set": {"credibility": cred, "cred_breakdown": breakdown}})
+            h['doc'] = coll.find_one({"_id": doc["_id"]})
+        
+        # recency
+        recency = compute_recency_score(doc.get("published"))
+
+        # combined score
+        combined = (rel_weight * rel_norm) + (cred_weight * cred) + (recency_weight * recency)
+        h['relevance'] = combined
+
+    hits.sort(key=lambda x: x['relevance'], reverse=True)
+
+    if prune:
+        pruned_hits = hybrid_prune_dynamic(hits, query_text, idf_map, alpha=0.5, min_docs=1)
+    else:
+        pruned_hits = hits
+
+    # dynamic k: if k is None, return all pruned hits
+    if k is not None:
+        pruned_hits = pruned_hits[:k]
+
+    out = []
+    for h in pruned_hits:
+        doc = h["doc"]
+        out.append({
+            "title": doc.get("title"),
+            "url": doc.get("url"),
+            "relevance": h["relevance"],
+            "credibility": doc.get("credibility"),
+            "snippet": (doc.get("content_clean") or "")[:300]
+        })
+    return out
 
 
 
