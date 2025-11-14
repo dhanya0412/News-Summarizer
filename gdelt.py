@@ -43,7 +43,7 @@ TOPICS = [
 ]
 
 
-def fetch_gdelt(query: str, maxrecords=10):
+def fetch_gdelt(query: str, maxrecords=100):
     start_ts, end_ts = get_last_month_range()
 
     params = {

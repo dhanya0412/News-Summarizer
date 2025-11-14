@@ -12,8 +12,8 @@ client = MongoClient(MONGO_URI)
 db = client[MONGO_DB]
 coll = db["raw_articles"]
 
-coll.delete_many({})
-print("Deleted all raw_articles.")
+#coll.delete_many({})
+#print("Deleted all raw_articles.")
 
 subprocess.run(["python", "gdelt.py"])
 subprocess.run(["python", "scraper.py"])
