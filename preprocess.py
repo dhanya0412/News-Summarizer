@@ -37,7 +37,7 @@ RE_SPACES = re.compile(r"\s+")
 def clean_text(text):
     if not text:
         return ""
-    text = ftfy.fix_text(text)                       # fix mojibake
+    #text = ftfy.fix_text(text)                       # fix mojibake
     text = re.sub(r"’s\b|\'s\b", "", text)           # remove possessives
     text = text.encode("ascii", "ignore").decode()   # strip non-ascii (optional)
     text = RE_URL.sub(" ", text)
@@ -78,7 +78,7 @@ def preprocess_text(text: str, **kwargs):
 
 from datetime import datetime, timezone
 
-def compute_recency_score(published_date, decay_days=30):
+'''def compute_recency_score(published_date, decay_days=30):
     """
     Returns a score [0..1] for recency.
     - Newest articles ~1
@@ -98,7 +98,7 @@ def compute_recency_score(published_date, decay_days=30):
 
     delta_days = (now - published_date).days
     score = math.exp(-delta_days / decay_days)
-    return max(0.0, min(1.0, score))
+    return max(0.0, min(1.0, score))'''
 
 # ---------------------------------------------------------------------
 # Credibility loader & scoring helpers
@@ -439,7 +439,7 @@ def hybrid_prune_dynamic(hits, query_text, idf_map, alpha=0.5, gap_ratio_thresho
 
 # ------------------ updated search pipeline ------------------
 def search(query_text, k=None, prune=True, gap_ratio_threshold=3.0,
-           rel_weight=0.6, cred_weight=0.25, recency_weight=0.15):
+           rel_weight=0.8, cred_weight=0.2, recency_weight=0.15):
     """
     Combines normalized relevance + credibility + recency for ranking.
     - k: maximum number of results (None -> return all passing documents)
@@ -468,10 +468,10 @@ def search(query_text, k=None, prune=True, gap_ratio_threshold=3.0,
             h['doc'] = coll.find_one({"_id": doc["_id"]})
         
         # recency
-        recency = compute_recency_score(doc.get("published"))
+        #recency = compute_recency_score(doc.get("published"))
 
         # combined score
-        combined = (rel_weight * rel_norm) + (cred_weight * cred) + (recency_weight * recency)
+        combined = (rel_weight * rel_norm) + (cred_weight * cred) + (0)
         h['relevance'] = combined
 
     hits.sort(key=lambda x: x['relevance'], reverse=True)
