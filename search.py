@@ -58,7 +58,7 @@ def query_to_ltn_vector(query_text, idf_map, vocab=None):
     Convert query to an Ltn (log-tf * idf, normalized) vector.
     High precision: skip terms not in idf_map.
     """
-    tokens = preprocess_text_to_tokens(query_text, keep_numbers=False, min_lemma_len=1)
+    tokens = preprocess_text_to_tokens(query_text, keep_numbers=True, min_lemma_len=1)
     tokens = expand_synonyms_query(tokens)
 
     if not tokens:
@@ -94,7 +94,8 @@ def query_to_bigram_vector(query_text, idf_map=None, vocab=None):
     Convert query to bigram vector with idf weighting and normalization.
     High precision: skip bigrams not appearing in idf_map.
     """
-    tokens = preprocess_text_to_tokens(query_text, keep_numbers=False, min_lemma_len=1)
+    tokens = preprocess_text_to_tokens(query_text, keep_numbers=True, min_lemma_len=1)
+    print("DEBUG TOKENS FOR BIGRAM:", tokens)
     tokens = expand_synonyms_query(tokens)
     bigrams = make_query_bigrams(tokens)
 
@@ -410,7 +411,7 @@ def get_relevant_snippet(content_clean, query_terms, snippet_length=300, window_
     return snippet
 
 def search(query_text, k=10, prune=True, gap_ratio_threshold=3.0, alpha=0.3, debug=False,
-           content_weight=0.65, bigram_weight=0.35, use_sampling_index=False):
+           content_weight=0.65, bigram_weight=0.35, use_sampling_index=False, min_relevance=0.067):
     """
     Top-level search entrypoint. content_weight and bigram_weight default to 0.7 and 0.3.
     """
@@ -464,6 +465,14 @@ def search(query_text, k=10, prune=True, gap_ratio_threshold=3.0, alpha=0.3, deb
     else:
         pruned_hits = hits
 
+    if min_relevance is not None:
+        before_count = len(pruned_hits)
+        pruned_hits = [h for h in pruned_hits if h.get("relevance", 0.0) >= float(min_relevance)]
+        after_count = len(pruned_hits)
+        if debug:
+            dropped = before_count - after_count
+            print(f"[debug] min_relevance={min_relevance} removed {dropped} docs (kept {after_count})") 
+            
     if k is not None:
         pruned_hits = pruned_hits[:k]
 
