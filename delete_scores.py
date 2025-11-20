@@ -9,14 +9,18 @@ MONGO_DB = os.getenv("MONGO_DB")
 
 client = MongoClient(MONGO_URI)
 db = client[MONGO_DB]
-coll = db["raw_articles"]
+coll = db["final_dataset"]
 
 # Remove content_clean from all docs
 result = coll.update_many({}, {"$unset": {"content_clean": ""}})
 print(f"Removed 'content_clean' from {result.modified_count} documents.")
 res = coll.update_many({"vector": {"$exists": True}}, {"$unset": {"vector": ""}})
-print(f"Removed 'vector' from {res.modified_count} documents.")
-cred = coll.update_many({"cred_breakdown": {"$exists": True}}, {"$unset": {"cred_breakdown": ""}})
-print(f"Removed 'cred_breakdown' from {cred.modified_count} documents.")
-credibility = coll.update_many({"credibility": {"$exists": True}}, {"$unset": {"credibility": ""}})
-print(f"Removed 'credility' from {credibility.modified_count} documents.")
+print(f"Removed 'vectors' from {res.modified_count} documents.")
+bigram = coll.update_many({"title_bigrams": {"$exists": True}}, {"$unset": {"title_bigrams": ""}})
+print(f"Removed 'title_bigrams' from {bigram.modified_count} documents.")
+a = coll.update_many({"term_idf": {"$exists": True}}, {"$unset": {"term_idf": ""}})
+print(f"Removed 'title_bigrams' from {a.modified_count} documents.")
+b = coll.update_many({"title_bigram_idf": {"$exists": True}}, {"$unset": {"title_bigram_idf": ""}})
+print(f"Removed 'title_bigrams' from {b.modified_count} documents.")
+c= coll.update_many({"title_bigram_weights": {"$exists": True}}, {"$unset": {"title_bigram_weights": ""}})
+print(f"Removed 'title_bigrams' from {c.modified_count} documents.")
