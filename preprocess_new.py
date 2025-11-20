@@ -1,10 +1,22 @@
-# backend/ingest/preprocess.py
+# File: backend/ingest/preprocess_bigrams.py
+# Local path: backend/ingest/preprocess_bigrams.py
+"""
+Document preprocessing pipeline (LNC-only).
+Everything is stored in final_dataset (no external vocab_terms / preproc_index).
+- content_clean: spaCy-lemmatized unigram tokens (space-joined) stored per-document.
+- vector: LNC (1 + log10(tf), L2-normalized) stored per-document for content terms.
+- term_lnc: per-doc raw lnc values (optional; stored only for terms present in the doc).
+- title_bigrams: adjacent lemma bigrams stored per-document when requested.
+- title_bigram_weights: LNC weights for title bigrams stored per-document when requested.
+"""
 import os
 import re
 import math
-from datetime import datetime
+from datetime import datetime, timezone
+from collections import Counter
 
 from pymongo import MongoClient
+import pymongo
 from dotenv import load_dotenv
 import spacy
 import ftfy
@@ -19,7 +31,6 @@ MONGO_DB = os.getenv("MONGO_DB")
 client = MongoClient(MONGO_URI)
 db = client[MONGO_DB]
 coll = db["final_dataset"]
-index_coll = db["preproc_index"]
 
 # ---------------------------------------------------------------------
 # Load spaCy English model (disable unused components for speed)
@@ -35,17 +46,26 @@ RE_SPACES = re.compile(r"\s+")
 RE_POSSESSIVE = re.compile(r"â€™s\b|\'s\b")
 
 # ---------------------------------------------------------------------
+# Named Entity Recognition for Common Phrases
+COMMON_PHRASES = {
+    'united states', 'new york', 'new delhi', 'saudi arabia',
+    'world cup', 'supreme court', 'high court', 'lok sabha',
+    'rajya sabha', 'prime minister', 'chief minister',
+    'european union', 'united kingdom', 'united nations',
+    'white house', 'red fort', 'india gate'
+}
+
+# ---------------------------------------------------------------------
 # Text cleaning and tokenization
 
 def clean_text(text):
+    """Clean and normalize text with encoding fixes and standardization."""
     if not text:
         return ""
 
     text = ftfy.fix_text(text)
 
-    # ------------------------------------------------
-    # REMOVE PUBLISH/UPDATE METADATA LINES
-    # ------------------------------------------------
+    # Remove publish/update metadata lines
     text = re.sub(
         r"^(updated|published)[^a-zA-Z0-9]+.*?\n",
         "",
@@ -53,9 +73,7 @@ def clean_text(text):
         flags=re.IGNORECASE | re.MULTILINE
     )
 
-    # ------------------------------------------------
-    # REMOVE CITY + DATE HEADERS ("New Delhi, Nov 5 —")
-    # ------------------------------------------------
+    # Remove city + date headers
     text = re.sub(
         r"^[A-Z][a-z]+(?:\s[A-Z][a-z]+)?,\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)[^\n]*\n",
         "",
@@ -63,12 +81,10 @@ def clean_text(text):
         flags=re.IGNORECASE | re.MULTILINE
     )
 
-    # Remove timezone words (pm, am, IST)
+    # Remove timezone words
     text = re.sub(r"\b(ist|gmt|am|pm)\b", " ", text, flags=re.IGNORECASE)
 
-    # ------------------------------------------------
-    # ORIGINAL CLEANING RULES
-    # ------------------------------------------------
+    # Original cleaning rules
     text = RE_POSSESSIVE.sub("", text)
     text = RE_URL.sub(" ", text)
     text = RE_PCT.sub(r"\1 percent", text)
@@ -79,287 +95,304 @@ def clean_text(text):
     return text
 
 
-def preprocess_text_to_tokens(text: str, keep_numbers: bool = False, min_lemma_len: int = 1):
+def preprocess_text_to_tokens(text: str, keep_numbers: bool = False,
+                               min_lemma_len: int = 1, include_bigrams: bool = False):
     """
     Tokenize and lemmatize text, removing stopwords.
-    
-    Args:
-        text: Input text string
-        keep_numbers: Whether to keep numeric tokens
-        min_lemma_len: Minimum length for lemmas to keep
-    
-    Returns:
-        List of processed tokens
+    Optionally append adjacent bigrams to the returned list (internal helper).
     """
     text = clean_text(text)
     if not text:
         return []
-    
-    doc = nlp(text)
+
+    protected_text = text.lower()
+    phrase_map = {}
+    for phrase in COMMON_PHRASES:
+        if phrase in protected_text:
+            placeholder = phrase.replace(' ', '_')
+            protected_text = protected_text.replace(phrase, placeholder)
+            phrase_map[placeholder] = phrase
+
+    doc = nlp(protected_text)
     tokens = []
-    
+
     for token in doc:
+        lemma = token.lemma_.lower().strip()
+
+        if not lemma:
+            continue
+
+        # protected phrase placeholder
+        if lemma in phrase_map:
+            tokens.append(lemma)
+            continue
+
         if token.is_stop:
             continue
         if not keep_numbers and not token.is_alpha:
             continue
-        
-        lemma = token.lemma_.lower().strip()
-        if lemma and len(lemma) >= min_lemma_len:
-            tokens.append(lemma)
-    
+        if len(lemma) < min_lemma_len:
+            continue
+
+        tokens.append(lemma)
+
+    if include_bigrams and len(tokens) >= 2:
+        bigrams = [f"{tokens[i]}_{tokens[i+1]}" for i in range(len(tokens) - 1)]
+        tokens.extend(bigrams)
+
     return tokens
 
 
-def preprocess_text(text: str, **kwargs):
-    """Convert text to space-separated string of processed tokens."""
-    return " ".join(preprocess_text_to_tokens(text, **kwargs))
+def preprocess_text(text: str, include_bigrams: bool = False, **kwargs):
+    """Convert text to space-separated string of processed tokens (unigrams by default)."""
+    return " ".join(preprocess_text_to_tokens(text, include_bigrams=include_bigrams, **kwargs))
 
 
 # ---------------------------------------------------------------------
-# TF-IDF Index Building
+# Title bigram PMI filtering (optional) - computes significant bigrams across titles
+# This only filters per-document stored title_bigrams; it does not write to any other collection.
 
-def build_df_map(min_df=1):
+def compute_bigram_scores(min_count=5, min_pmi=3.0):
     """
-    Build document frequency map for all terms in corpus.
-    
-    Args:
-        min_df: Minimum document frequency threshold
-    
-    Returns:
-        Tuple of (total_docs, df_map)
+    Compute PMI for title bigrams across titles and filter stored per-document title_bigrams.
+    No external collections are used.
     """
-    print("Building DF map...")
-    df = {}
-    total_docs = 0
+    print("Computing significant title bigrams (PMI)...")
 
-    cursor = coll.find(
-        {"content_clean": {"$exists": True, "$ne": ""}}, 
-        {"content_clean": 1}
-    )
-    
-    for doc in tqdm(cursor):
-        total_docs += 1
-        content = doc.get("content_clean", "")
-        
-        if isinstance(content, str):
-            terms = content.split()
-        else:
-            terms = content
-        
-        # Count unique terms only
-        unique_terms = set(terms)
-        for t in unique_terms:
-            df[t] = df.get(t, 0) + 1
+    unigram_counts = Counter()
+    bigram_counts = Counter()
+    total_tokens = 0
 
-    # Filter by minimum document frequency
-    if min_df > 1:
-        df = {t: c for t, c in df.items() if c >= min_df}
+    cursor = coll.find({"title": {"$exists": True, "$ne": ""}}, {"title": 1})
+    for doc in tqdm(cursor, desc="Scanning titles for PMI"):
+        title = doc.get("title", "") or ""
+        tokens = preprocess_text_to_tokens(title, include_bigrams=False)
+        total_tokens += len(tokens)
+        for t in tokens:
+            unigram_counts[t] += 1
+        for i in range(len(tokens) - 1):
+            bigram_counts[(tokens[i], tokens[i+1])] += 1
 
-    # Store in database
-    meta = {
-        "name": "vocab_df",
-        "N": total_docs,
-        "df": df,
-        "updated_at": datetime.utcnow()
-    }
-    index_coll.replace_one({"name": "vocab_df"}, meta, upsert=True)
-    
-    print(f"Built DF for {len(df)} terms across {total_docs} documents.")
-    return total_docs, df
+    significant_bigrams = set()
+    if total_tokens == 0:
+        print("No title tokens found; skipping PMI.")
+        return significant_bigrams
 
+    for (w1, w2), count in bigram_counts.items():
+        if count < min_count:
+            continue
+        p_bigram = count / total_tokens
+        p_w1 = unigram_counts[w1] / total_tokens
+        p_w2 = unigram_counts[w2] / total_tokens
+        if p_w1 > 0 and p_w2 > 0 and p_bigram > 0:
+            pmi = math.log2(p_bigram / (p_w1 * p_w2))
+            if pmi >= min_pmi:
+                significant_bigrams.add(f"{w1}_{w2}")
 
-def compute_idf_map(N, df_map):
-    """
-    Compute IDF (Inverse Document Frequency) for all terms.
-    
-    Args:
-        N: Total number of documents
-        df_map: Document frequency map
-    
-    Returns:
-        IDF map dictionary
-    """
-    print("Computing IDF map...")
-    idf = {}
-    
-    for t, df in df_map.items():
-        if df > 0:
-            idf[t] = math.log10(N / df)
-    
-    # Update database with IDF values
-    index_coll.update_one(
-        {"name": "vocab_df"},
-        {"$set": {"idf": idf, "idf_updated_at": datetime.utcnow()}},
-        upsert=True
-    )
-    
-    print("IDF map computed.")
-    return idf
+    print(f"Found {len(significant_bigrams)} significant title bigrams (PMI >= {min_pmi})")
+
+    # Filter per-document stored title_bigrams (if any)
+    if significant_bigrams:
+        cursor2 = coll.find({"title_bigrams": {"$exists": True}}, {"title_bigrams": 1})
+        bulk_ops = []
+        for doc in tqdm(cursor2, desc="Filtering per-doc title_bigrams"):
+            tb = doc.get("title_bigrams", []) or []
+            filtered = [b for b in tb if b in significant_bigrams]
+            if filtered:
+                bulk_ops.append(pymongo.UpdateOne({"_id": doc["_id"]}, {"$set": {"title_bigrams": filtered}}))
+            else:
+                bulk_ops.append(pymongo.UpdateOne({"_id": doc["_id"]}, {"$unset": {"title_bigrams": ""}}))
+
+            if len(bulk_ops) >= 500:
+                coll.bulk_write(bulk_ops, ordered=False)
+                bulk_ops = []
+        if bulk_ops:
+            coll.bulk_write(bulk_ops, ordered=False)
+
+    print("Title bigram filtering complete (stored in final_dataset only).")
+    return significant_bigrams
 
 
-def tf_weight(tf):
-    """Compute logarithmic TF weight."""
+# ---------------------------------------------------------------------
+# LNC builders: content and title bigrams
+
+def tf_weight_raw(tf):
+    """Raw L value: 1 + log10(tf) for tf>0, else 0"""
     return 1.0 + math.log10(tf) if tf > 0 else 0.0
 
 
-def doc_lnc_vector_from_terms(terms, vocab=None):
+def build_and_store_doc_vectors_lnc():
     """
-    Build LNC (log-normalized-cosine) document vector.
-    
-    Args:
-        terms: List of document terms
-        vocab: Optional vocabulary set to filter terms
-    
-    Returns:
-        Dictionary mapping terms to normalized weights
+    Compute per-document LNC (1 + log10(tf), then L2-normalize) for content terms.
+    Stores per-document:
+      - vector: {term: normalized_lnc}
+      - term_lnc: {term: raw_lnc}    (only for terms in that document)
     """
-    # Compute term frequencies
-    tf = {}
-    for t in terms:
-        if vocab is not None and t not in vocab:
+    print("Building and storing per-document LNC vectors (content)...")
+    cursor = coll.find({"content_clean": {"$exists": True, "$ne": ""}}, {"content_clean": 1})
+    bulk_ops = []
+    for doc in tqdm(cursor, desc="Computing LNC vectors"):
+        content = doc.get("content_clean", "") or ""
+        if not content:
+            bulk_ops.append(pymongo.UpdateOne({"_id": doc["_id"]}, {"$unset": {"vector": "", "term_lnc": ""}}))
+            if len(bulk_ops) >= 500:
+                coll.bulk_write(bulk_ops, ordered=False)
+                bulk_ops = []
             continue
-        tf[t] = tf.get(t, 0) + 1
 
-    # Apply log weighting
-    vec = {}
-    for t, f in tf.items():
-        if f > 0:
-            vec[t] = tf_weight(f)
+        terms = content.split()
+        tf = Counter(terms)
 
-    # Cosine normalization
-    norm = math.sqrt(sum(w * w for w in vec.values()))
-    if norm > 0:
-        for t in vec:
-            vec[t] = vec[t] / norm
-    
-    return vec
+        # raw lnc values
+        lnc_raw = {t: tf_weight_raw(f) for t, f in tf.items()}
+
+        # L2 normalization
+        norm = math.sqrt(sum(v * v for v in lnc_raw.values()))
+        if norm > 0:
+            vec = {t: (v / norm) for t, v in lnc_raw.items()}
+        else:
+            vec = {}
+
+        update = {"vector": vec, "term_lnc": lnc_raw}
+        bulk_ops.append(pymongo.UpdateOne({"_id": doc["_id"]}, {"$set": update}))
+
+        if len(bulk_ops) >= 500:
+            coll.bulk_write(bulk_ops, ordered=False)
+            bulk_ops = []
+
+    if bulk_ops:
+        coll.bulk_write(bulk_ops, ordered=False)
+    print("Content LNC vectors stored per-document.")
 
 
-def build_and_store_doc_vectors(min_df=1, force_rebuild=False):
+def build_and_store_title_bigram_lnc(include_bigrams=False):
     """
-    Build and store document vectors for all articles.
-    
-    Args:
-        min_df: Minimum document frequency
-        force_rebuild: Force rebuilding DF/IDF maps
+    For each document, compute adjacent title bigrams (from spaCy-lemmatized title tokens)
+    and store LNC weights for those bigrams.
+
+    Stores per-document:
+      - title_bigrams: [bigrams]            (if include_bigrams True)
+      - title_bigram_weights: {bigram: normalized_lnc}
+      - title_bigram_lnc: {bigram: raw_lnc}
+
+    If include_bigrams is False, removes any existing title_bigram fields.
     """
-    # Load or build DF/IDF maps
-    meta = index_coll.find_one({"name": "vocab_df"})
-    
-    if not meta or force_rebuild:
-        N, df_map = build_df_map(min_df=min_df)
-        idf_map = compute_idf_map(N, df_map)
-    else:
-        N = meta["N"]
-        df_map = meta["df"]
-        idf_map = meta.get("idf")
-        if idf_map is None:
-            idf_map = compute_idf_map(N, df_map)
+    if not include_bigrams:
+        # remove any existing fields safely
+        cursor = coll.find({"$or": [{"title_bigrams": {"$exists": True}}, {"title_bigram_weights": {"$exists": True}}, {"title_bigram_lnc": {"$exists": True}}]}, {"_id": 1})
+        bulk = []
+        for doc in tqdm(cursor, desc="Removing title bigram fields"):
+            bulk.append(pymongo.UpdateOne({"_id": doc["_id"]}, {"$unset": {"title_bigrams": "", "title_bigram_weights": "", "title_bigram_lnc": ""}}))
+            if len(bulk) >= 500:
+                coll.bulk_write(bulk, ordered=False)
+                bulk = []
+        if bulk:
+            coll.bulk_write(bulk, ordered=False)
+        print("Removed title bigram fields where present.")
+        return
 
-    vocab = set(df_map.keys())
+    print("Computing & storing per-document title bigram LNC weights...")
+    cursor = coll.find({}, {"title": 1})
+    bulk_ops = []
+    for doc in tqdm(cursor, desc="Title bigram LNC"):
+        title = doc.get("title", "") or ""
+        tokens = preprocess_text_to_tokens(title, include_bigrams=False)
+        bigrams = [f"{tokens[i]}_{tokens[i+1]}" for i in range(len(tokens)-1)] if len(tokens) >= 2 else []
+        if not bigrams:
+            # remove fields if present
+            bulk_ops.append(pymongo.UpdateOne({"_id": doc["_id"]}, {"$unset": {"title_bigrams": "", "title_bigram_weights": "", "title_bigram_lnc": ""}}))
+            if len(bulk_ops) >= 500:
+                coll.bulk_write(bulk_ops, ordered=False)
+                bulk_ops = []
+            continue
 
-    print("Building and storing document vectors (LNC)...")
-    cursor = coll.find(
-        {"content_clean": {"$exists": True, "$ne": ""}},
-        {"content_clean": 1}
-    )
-    
-    for doc in tqdm(cursor):
-        content = doc.get("content_clean", "")
-        terms = content.split() if isinstance(content, str) else content
-        vec = doc_lnc_vector_from_terms(terms, vocab=vocab)
-        coll.update_one({"_id": doc["_id"]}, {"$set": {"vector": vec}})
-    
-    # Mark index as built
-    index_coll.update_one(
-        {"name": "vocab_df"},
-        {"$set": {"index_built_at": datetime.utcnow()}},
-        upsert=True
-    )
-    
-    print("Document vectors (LNC) stored.")
+        tf = Counter(bigrams)
+        lnc_raw = {b: tf_weight_raw(f) for b, f in tf.items()}
+        norm = math.sqrt(sum(v * v for v in lnc_raw.values()))
+        if norm > 0:
+            vec = {b: (v / norm) for b, v in lnc_raw.items()}
+        else:
+            vec = {}
 
+        update = {"title_bigrams": bigrams, "title_bigram_weights": vec, "title_bigram_lnc": lnc_raw}
+        bulk_ops.append(pymongo.UpdateOne({"_id": doc["_id"]}, {"$set": update}))
 
-def build_index_if_needed(force=False, min_df=1):
-    """
-    Build index if it doesn't exist or if forced.
-    
-    Args:
-        force: Force rebuild even if index exists
-        min_df: Minimum document frequency
-    
-    Returns:
-        Tuple of (N, df_map, idf_map)
-    """
-    meta = index_coll.find_one({"name": "vocab_df"})
-    
-    if not meta or force:
-        N, df_map = build_df_map(min_df=min_df)
-        idf_map = compute_idf_map(N, df_map)
-        build_and_store_doc_vectors(min_df=min_df, force_rebuild=True)
-        return N, df_map, idf_map
-    else:
-        N = meta["N"]
-        df_map = meta["df"]
-        idf_map = meta.get("idf")
-        if idf_map is None:
-            idf_map = compute_idf_map(N, df_map)
-        return N, df_map, idf_map
+        if len(bulk_ops) >= 500:
+            coll.bulk_write(bulk_ops, ordered=False)
+            bulk_ops = []
+
+    if bulk_ops:
+        coll.bulk_write(bulk_ops, ordered=False)
+    print("Per-document title bigram LNC weights stored.")
 
 
 # ---------------------------------------------------------------------
-# Document Processing Pipeline
+# Main preprocessing loop
 
-def process_unsanitized(batch_size=50):
+def process_unsanitized(batch_size=50, include_bigrams=False):
     """
-    Process documents where content exists but content_clean is missing.
-    
-    Args:
-        batch_size: Number of documents to process per batch
+    - content_clean: cleaned + tokenized + lemmatized unigram string (stored per-document).
+    - title_bigrams: adjacent bigrams stored per-document only if include_bigrams True.
     """
     processed_count = 0
-    
     while True:
-        docs = list(coll.find(
-            {"content": {"$ne": None}, "content_clean": {"$exists": False}}
-        ).limit(batch_size))
-
+        docs = list(coll.find({"content": {"$ne": None}, "content_clean": {"$exists": False}}).limit(batch_size))
         if not docs:
             print("✓ No more documents to preprocess.")
             break
 
         print(f"📝 Processing batch of {len(docs)} documents...")
+        ops = []
+        for doc in docs:
+            raw = doc.get("content", "") or ""
+            tokens = preprocess_text_to_tokens(raw, keep_numbers=False, min_lemma_len=1, include_bigrams=False)
+            content_clean = " ".join(tokens)
+            update = {"content_clean": content_clean}
 
-        for doc in tqdm(docs):
-            raw_text = doc.get("content", "")
-            clean_version = preprocess_text(raw_text)
+            if include_bigrams:
+                title = doc.get("title", "") or ""
+                title_tokens = preprocess_text_to_tokens(title, keep_numbers=False, min_lemma_len=1, include_bigrams=False)
+                if len(title_tokens) >= 2:
+                    title_bigrams = [f"{title_tokens[i]}_{title_tokens[i+1]}" for i in range(len(title_tokens)-1)]
+                    update["title_bigrams"] = title_bigrams
 
-            coll.update_one(
-                {"_id": doc["_id"]},
-                {"$set": {"content_clean": clean_version}}
-            )
+            ops.append(pymongo.UpdateOne({"_id": doc["_id"]}, {"$set": update}))
+            if len(ops) >= 500:
+                coll.bulk_write(ops, ordered=False)
+                ops = []
             processed_count += 1
 
-    print(f"✓ Total processed: {processed_count} documents")
+        if ops:
+            coll.bulk_write(ops, ordered=False)
+
+    print(f"✓ Total processed: {processed_count}")
 
 
 # ---------------------------------------------------------------------
-# Main execution
+# Entrypoint orchestration (LNC-only; no flags added for LNC)
 
 if __name__ == "__main__":
+    import sys
+    use_bigrams = '--bigrams' in sys.argv or '-b' in sys.argv
+
     print("=" * 60)
-    print("DOCUMENT PREPROCESSING PIPELINE")
+    print("DOCUMENT PREPROCESSING PIPELINE — LNC ONLY")
+    print("All outputs are stored in final_dataset only.")
     print("=" * 60)
-    
-    # Step 1: Preprocess documents
-    print("\n[1/2] Preprocessing documents...")
-    process_unsanitized(batch_size=50)
-    
-    # Step 2: Build search index
-    print("\n[2/2] Building search index...")
-    build_index_if_needed(force=True, min_df=1)
-    
-    print("\n" + "=" * 60)
-    print("PREPROCESSING COMPLETE")
+
+    print("\n[1/3] Preprocessing raw documents (content_clean and optional raw title_bigrams)...")
+    process_unsanitized(batch_size=50, include_bigrams=use_bigrams)
+
+    print("\n[2/3] Building & storing per-document content LNC vectors (vector, term_lnc)...")
+    build_and_store_doc_vectors_lnc()
+
+    if use_bigrams:
+        print("\n[3/3] Building & storing per-document title bigram LNC weights...")
+        # Optionally you can run compute_bigram_scores(...) before this to filter bigrams globally.
+        build_and_store_title_bigram_lnc(include_bigrams=True)
+    else:
+        print("\n[3/3] Skipping title bigram weight computation (use --bigrams to enable).")
+        build_and_store_title_bigram_lnc(include_bigrams=False)
+
+    print("\nPREPROCESSING COMPLETE")
     print("=" * 60)

@@ -439,7 +439,7 @@ def hybrid_prune_dynamic(hits, query_text, idf_map, alpha=0.5, gap_ratio_thresho
 
 # ------------------ updated search pipeline ------------------
 def search(query_text, k=None, prune=True, gap_ratio_threshold=3.0,
-           rel_weight=0.85, cred_weight=0.1, recency_weight=0.05):
+           rel_weight=0.8, cred_weight=0.2, recency_weight=0.15):
     """
     Combines normalized relevance + credibility + recency for ranking.
     - k: maximum number of results (None -> return all passing documents)
