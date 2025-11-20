@@ -43,7 +43,7 @@ def expand_synonyms_query(tokens):
     return expanded
 
 # ---------------------------------------------------------------------
-# Query Processing
+# TF / Query vector helpers
 
 def tf_weight(tf):
     """1 + log10(tf) LNC raw weight"""
@@ -55,95 +55,130 @@ def make_query_bigrams(tokens):
 
 def query_to_ltn_vector(query_text, idf_map, vocab=None):
     """
-    Convert query to LTN (log-TF-IDF-normalized) vector.
-    
-    Args:
-        query_text: Query string
-        idf_map: IDF values for vocabulary
-        vocab: Optional vocabulary set to filter terms
-    
-    Returns:
-        Query vector dictionary
+    Convert query to an Ltn (log-tf * idf, normalized) vector.
+    High precision: skip terms not in idf_map.
     """
     tokens = preprocess_text_to_tokens(query_text, keep_numbers=False, min_lemma_len=1)
+    tokens = expand_synonyms_query(tokens)
+
     if not tokens:
         return {}
-   
 
+    # term frequency in query
     tf_q = {}
     for t in tokens:
-        # do NOT filter by vocab or run fuzzy correction
         tf_q[t] = tf_q.get(t, 0) + 1
 
+    # apply tf * idf
     vec_q = {}
     for t, f in tf_q.items():
-        if idf_map and t in idf_map:
+        if idf_map and t in idf_map:   # HIGH PRECISION: ignore unknown terms
             vec_q[t] = tf_weight(f) * idf_map[t]
-        elif idf_map:
-            # if term missing in idf_map, skip (unknown term)
-            continue
-        else:
-            # if no idf_map, use lnc only
-            vec_q[t] = tf_weight(f)
+
+    if not vec_q:
+        return {}
+
+    # --- NORMALIZATION (cosine normalization) ---
+    norm = sum(v * v for v in vec_q.values()) ** 0.5
+    if norm == 0:
+        return vec_q
+
+    for k in vec_q:
+        vec_q[k] /= norm
+
     return vec_q
 
+
 def query_to_bigram_vector(query_text, idf_map=None, vocab=None):
-    """Convert query to bigram vector. Uses idf_map when available for bigrams. No fuzzy correction."""
+    """
+    Convert query to bigram vector with idf weighting and normalization.
+    High precision: skip bigrams not appearing in idf_map.
+    """
     tokens = preprocess_text_to_tokens(query_text, keep_numbers=False, min_lemma_len=1)
     tokens = expand_synonyms_query(tokens)
     bigrams = make_query_bigrams(tokens)
+
     if not bigrams:
         return {}
 
+    # compute tf for bigrams
     tf_b = {}
     for b in bigrams:
-        # do NOT fuzzy-correct or filter by vocab
         tf_b[b] = tf_b.get(b, 0) + 1
 
+    # compute weighted vector
     vec_b = {}
     for b, f in tf_b.items():
-        l = tf_weight(f)
-        idf_b = None
-        if idf_map:
-            # try underscore form first, then space, then hyphen
-            if b in idf_map:
-                idf_b = idf_map[b]
-            else:
-                space = b.replace("_", " ")
-                if space in idf_map:
-                    idf_b = idf_map[space]
-                else:
-                    hy = b.replace("_", "-")
-                    if hy in idf_map:
-                        idf_b = idf_map[hy]
-        vec_b[b] = l * (idf_b if idf_b is not None else 1.0)
+        # try multiple forms
+        idf_b = (
+            idf_map.get(b)
+            if idf_map and b in idf_map else
+            idf_map.get(b.replace("_", " ")) if idf_map and b.replace("_", " ") in idf_map else
+            idf_map.get(b.replace("_", "-")) if idf_map and b.replace("_", "-") in idf_map else
+            None
+        )
+
+        # HIGH PRECISION: skip unknown bigrams
+        if idf_b is None:
+            continue
+
+        vec_b[b] = tf_weight(f) * idf_b
+
+    if not vec_b:
+        return {}
+
+    # --- NORMALIZATION ---
+    norm = sum(v * v for v in vec_b.values()) ** 0.5
+    if norm == 0:
+        return vec_b
+
+    for k in vec_b:
+        vec_b[k] /= norm
+
     return vec_b
+
 
 # ---------------------------------------------------------------------
 # Index builder helper (reads/writes single meta doc in final_dataset)
+def canonicalize_bigram_token(b):
+    if not isinstance(b, str):
+        return None
+    b = b.strip()
+    if " " in b:
+        return b.replace(" ", "_")
+    if "-" in b:
+        return b.replace("-", "_")
+    return b  # assume underscore or single token already
 
-def get_or_build_index_from_collection(collection, use_sampling=False, sample_size=1000, bigram_field_names=None, debug=False):
+# ---------------------------------------------------------------------
+def get_or_build_index_from_collection(collection,
+                                       use_sampling=False,
+                                       sample_size=1000,
+                                       bigram_field_names=None,
+                                       debug=False):
     """
     Returns (N, df_map, idf_map).
-    Tries to read single meta doc with id="index_meta_".
-    If not present, scans final_dataset and builds df_map from content_clean unigrams
-    and any bigram fields present (keys in title_bigram_lnc/title_bigram_weights or title_bigrams array).
+    - Looks for meta doc with _id == "_index_meta_" in the same collection.
+      (Prefer moving meta into a separate 'preproc_index' collection in prod.)
+    - If not present, builds DF map from 'content_clean' plus title bigram fields.
     """
     bigram_field_names = bigram_field_names or ["title_bigram_lnc", "title_bigram_weights"]
 
-    # Try meta doc
+    # Try load meta doc
     try:
-        meta = collection.find_one({"id": "index_meta_"})
-        if meta and "N" in meta and "df_map" in meta and "idf_map" in meta:
+        meta = collection.find_one({"_id": "_index_meta_"})
+        if meta and isinstance(meta.get("N"), int) and isinstance(meta.get("df_map"), dict) and isinstance(meta.get("idf_map"), dict):
             if debug:
-                print("Loaded index metadata from final_dataset._index_meta_")
+                print("Loaded index metadata from collection meta doc")
             return meta["N"], meta["df_map"], meta["idf_map"]
-    except Exception:
-        pass
+    except Exception as e:
+        if debug:
+            print("Meta load error:", e)
 
     df_map = {}
     N = 0
 
+    # build cursor (sampling or full)
     if use_sampling:
         cursor = collection.aggregate([
             {"$sample": {"size": sample_size}},
@@ -154,102 +189,146 @@ def get_or_build_index_from_collection(collection, use_sampling=False, sample_si
 
     for doc in cursor:
         N += 1
-        content = doc.get("content_clean", "")
-        if content:
-            for t in set(content.split()):
+        content = doc.get("content_clean") or ""
+        if isinstance(content, str) and content.strip():
+            # assume content_clean is space-separated tokens
+            try:
+                unique_terms = set(content.split())
+            except Exception:
+                unique_terms = set()
+            for t in unique_terms:
+                if not t:
+                    continue
                 df_map[t] = df_map.get(t, 0) + 1
 
-        # title_bigrams array (list of bigram strings) - count presence once per doc
+        # title_bigrams array (presence)
         tb_arr = doc.get("title_bigrams")
         if isinstance(tb_arr, list):
-            for b in set(tb_arr):
-                df_map[b] = df_map.get(b, 0) + 1
+            for raw_b in set(tb_arr):
+                b = canonicalize_bigram_token(raw_b)
+                if b:
+                    df_map[b] = df_map.get(b, 0) + 1
 
-        # bigram LNC objects (title_bigram_lnc or title_bigram_weights) whose keys are bigram strings
+        # bigram dict fields (keys are bigram strings)
         for bf in bigram_field_names:
             bmap = doc.get(bf)
             if isinstance(bmap, dict):
-                for b in bmap.keys():
-                    df_map[b] = df_map.get(b, 0) + 1
+                for raw_b in bmap.keys():
+                    b = canonicalize_bigram_token(raw_b)
+                    if b:
+                        df_map[b] = df_map.get(b, 0) + 1
 
     if N == 0:
         return 0, {}, {}
 
+    # Build idf_map with smoothed formula
     idf_map = {}
     for term, df in df_map.items():
-        # smoothed idf (avoid division by zero); N / (1 + df)
-        idf_map[term] = math.log10(N / (1.0 + df)) if df > 0 else 0.0
+        # use log10((N) / (1 + df)) as before — you may choose other smoothing
+        try:
+            idf_map[term] = math.log10((N) / (1.0 + df)) if df > 0 else 0.0
+        except Exception:
+            idf_map[term] = 0.0
 
-    # try to persist meta for faster loads (best for production)
+    # persist meta doc (if desired) — consider using a separate collection for meta in production
     try:
         collection.update_one(
-            {"id": "index_meta_"},
+            {"_id": "_index_meta_"},
             {"$set": {"N": N, "df_map": df_map, "idf_map": idf_map, "built_at": datetime.utcnow()}},
             upsert=True
         )
     except Exception:
-        # ignore write errors
-        pass
+        if debug:
+            print("Warning: failed to persist index meta")
 
     return N, df_map, idf_map
 
 # ---------------------------------------------------------------------
 # Scoring: hybrid content + title-bigram
-
-def score_docs_for_query(vec_q, vec_q_bigram=None, top_k=10, content_weight=0.7, bigram_weight=0.3):
-    """
-    For each document:
-      - content_score_raw = sum(q_w * doc.vector[t])  (doc.vector is L2-normalized unigram vector)
-      - bigram_score_raw = sum(qb_w * doc_bigram_lnc.get(b,0)) (doc bigram LNC expected unnormalized)
-    Normalize each by sum of query-side weights and combine with weights (0.7,0.3).
-    """
-    if not vec_q and not vec_q_bigram:
+# Assumptions:
+# - `coll` is the collection containing your documents (must exist in module scope).
+# - Query vectors passed in (vec_q, vec_q_bigram) are *L2-normalized* dicts.
+# - Document 'vector' is L2-normalized unigram vector (doc-side).
+# - Document bigram data may be:
+#     - title_bigram_lnc (dict of bigram -> lnc weight) OR
+#     - title_bigram_weights (dict) OR
+#     - title_bigrams (array of bigram strings)
+# - We will normalize bigram scores relative to query-side norm to keep ranges comparable.
+def score_docs_for_query(vec_q, vec_q_bigram=None, top_k=10, content_weight=0.65, bigram_weight=0.35):
+    if (not vec_q or len(vec_q) == 0) and (not vec_q_bigram or len(vec_q_bigram) == 0):
         return []
 
+    # sanitize / ensure dicts
+    vec_q = vec_q or {}
+    vec_q_bigram = vec_q_bigram or {}
+
+    # compute query-side norms (should be ~1.0 if you normalized earlier)
+    def l2_norm_vec(v):
+        if not v:
+            return 0.0
+        return math.sqrt(sum(val * val for val in v.values()))
+
+    max_q_weight = l2_norm_vec(vec_q)
+    max_q_bigram_weight = l2_norm_vec(vec_q_bigram)
+
+    # fetch documents; project only needed fields to reduce IO
     cursor = coll.find(
         {"vector": {"$exists": True}},
         {"title": 1, "url": 1, "vector": 1, "published": 1, "content_clean": 1,
-         "title_bigram_lnc": 1, "title_bigram_weights": 1, "term_lnc": 1, "title_bigrams": 1}
+         "title_bigram_lnc": 1, "title_bigram_weights": 1, "title_bigrams": 1}
     )
 
-    def l2_norm(vec):
-       return math.sqrt(sum(v * v for v in vec.values())) if vec else 0.0
-
-    max_q_weight = l2_norm(vec_q)
-    max_q_bigram_weight = l2_norm(vec_q_bigram)
-
-
-
     results = []
+
     for doc in cursor:
-        doc_vec = doc.get("vector", {})
+        doc_vec = doc.get("vector", {}) or {}
 
-        # content score
+        # content score: dot product between query vector (vec_q) and doc_vec
         content_score_raw = 0.0
-        if vec_q:
-            # doc_vec contains L2-normalized lnc weights; vec_q contains l*idf (unnormalized)
-            content_score_raw = sum(q_w * doc_vec.get(t, 0.0) for t, q_w in vec_q.items())
+        if vec_q and doc_vec:
+            # both should be L2-normalized; dot product yields cosine (0..1)
+            content_score_raw = sum(vec_q.get(t, 0.0) * doc_vec.get(t, 0.0) for t in vec_q.keys())
 
-        # bigram source: prefer title_bigram_lnc, then title_bigram_weights, then title_bigrams array (presence only)
-        doc_bigram_field = doc.get("title_bigram_weights") 
+        # bigram score
         bigram_score_raw = 0.0
         if vec_q_bigram:
-            if isinstance(doc_bigram_field, dict) and doc_bigram_field:
-                # doc stores bigram -> lnc (unnormalized) -> do direct dot
-                bigram_score_raw = sum(qb_w * doc_bigram_field.get(b, 0.0) for b, qb_w in vec_q_bigram.items())
+            # prefer title_bigram_lnc then title_bigram_weights
+            doc_bigram_map = None
+            if isinstance(doc.get("title_bigram_lnc"), dict) and doc.get("title_bigram_lnc"):
+                doc_bigram_map = { canonicalize_bigram_token(k): v for k, v in doc.get("title_bigram_lnc").items() if canonicalize_bigram_token(k) }
+            elif isinstance(doc.get("title_bigram_weights"), dict) and doc.get("title_bigram_weights"):
+                doc_bigram_map = { canonicalize_bigram_token(k): v for k, v in doc.get("title_bigram_weights").items() if canonicalize_bigram_token(k) }
+
+            if doc_bigram_map:
+                # doc_bigram_map likely contains LNC style weights (unnormalized)
+                # compute dot product: (query_bigram_normed) dot (doc_bigram_lnc)
+                # To keep comparable scale, we normalize doc_bigram_map to unit length before dot if it's not already.
+                doc_bigram_norm = math.sqrt(sum(v * v for v in doc_bigram_map.values())) if doc_bigram_map else 0.0
+                if doc_bigram_norm > 0:
+                    # normalize doc bigram weights (L2) for fair cosine with normalized query vector
+                    for b, qw in vec_q_bigram.items():
+                        cb = canonicalize_bigram_token(b)
+                        if not cb:
+                            continue
+                        doc_w = doc_bigram_map.get(cb, 0.0)
+                        if doc_w:
+                            bigram_score_raw += qw * (doc_w / doc_bigram_norm)
+                else:
+                    # fallback to direct dot (if normalization not desired)
+                    bigram_score_raw = sum(vec_q_bigram.get(b, 0.0) * doc_bigram_map.get(canonicalize_bigram_token(b), 0.0) for b in vec_q_bigram.keys())
             else:
-                # fallback: title_bigrams array -> treat match as tf=1 (presence)
+                # fallback: title_bigrams presence array
                 tb_arr = doc.get("title_bigrams") or []
-                tb_set = set(tb_arr) if tb_arr else set()
-                if tb_set:
-                    for b, qb_w in vec_q_bigram.items():
-                        if b in tb_set or b.replace("_", " ") in tb_set:
-                            bigram_score_raw += qb_w  # presence-based
+                if tb_arr:
+                    tb_set = set(canonicalize_bigram_token(x) for x in tb_arr if x)
+                    for b, qw in vec_q_bigram.items():
+                        cb = canonicalize_bigram_token(b)
+                        if cb in tb_set:
+                            bigram_score_raw += qw
 
-        # Normalize by query-side totals so scores are comparable
-        content_score_norm = content_score_raw / max_q_weight if max_q_weight > 0 else 0.0
-        bigram_score_norm = bigram_score_raw / max_q_bigram_weight if max_q_bigram_weight > 0 else 0.0
-
+        # Normalize both scores by query norms (prevent dividing by zero)
+        content_score_norm = content_score_raw / max_q_weight if max_q_weight > 0 else content_score_raw
+        bigram_score_norm = bigram_score_raw / max_q_bigram_weight if max_q_bigram_weight > 0 else bigram_score_raw
 
         final_relevance = (content_weight * content_score_norm) + (bigram_weight * bigram_score_norm)
 
@@ -264,7 +343,6 @@ def score_docs_for_query(vec_q, vec_q_bigram=None, top_k=10, content_weight=0.7,
     results.sort(key=lambda x: x["relevance"], reverse=True)
     return results[:top_k]
 
-# ---------------------------------------------------------------------
 # Pruning, snippet, and search interface (mostly unchanged behavior)
 
 def hybrid_prune_dynamic(hits, query_text, idf_map, alpha=0.25, gap_ratio_threshold=2.0, min_docs=1, debug=True):
@@ -331,32 +409,41 @@ def get_relevant_snippet(content_clean, query_terms, snippet_length=300, window_
         snippet = snippet[:snippet_length].rsplit(' ', 1)[0] + "..."
     return snippet
 
+def search(query_text, k=10, prune=True, gap_ratio_threshold=3.0, alpha=0.3, debug=False,
+           content_weight=0.65, bigram_weight=0.35, use_sampling_index=False):
+    """
+    Top-level search entrypoint. content_weight and bigram_weight default to 0.7 and 0.3.
+    """
+    # Build or read index from final_dataset
+    N, df_map, idf_map = get_or_build_index_from_collection(
+        coll,
+        use_sampling=use_sampling_index,
+        sample_size=1000,
+        bigram_field_names=["title_bigram_lnc", "title_bigram_weights"],
+        debug=debug
+    )
+    vocab = set(df_map.keys()) if df_map else set()
 
-def search(query_text, k=10, prune=True, gap_ratio_threshold=3.0, alpha=0.5, debug=False):
-    """
-    Search for documents matching the query.
-    
-    Args:
-        query_text: Search query string
-        k: Maximum number of results (None = return all passing documents)
-        prune: Whether to apply dynamic pruning
-        gap_ratio_threshold: Threshold for detecting score gaps
-        alpha: Minimum overlap threshold for pruning
-        debug: Print debug information
-    
-    Returns:
-        List of result dictionaries with title, url, relevance, and snippet
-    """
-    # Ensure index is built
-    N, df_map, idf_map = build_index_if_needed(force=False)
-    vocab = set(df_map.keys())
-    
-    # Convert query to vector and get query terms
-    vec_q = query_to_ltn_vector(query_text, idf_map, vocab=vocab)
-    query_terms = preprocess_text_to_tokens(query_text, keep_numbers=False, min_lemma_len=1)
-    
-    if not vec_q:
-        print("⚠ Query produced no valid terms.")
+    # Query vectors (no fuzzy correction)
+    vec_q = query_to_ltn_vector(query_text, idf_map, vocab=None)
+    vec_q_bigram = query_to_bigram_vector(query_text, idf_map=idf_map, vocab=None)
+
+    # In the search() function, after creating vectors, add:
+    if debug or True:  # Force debug for now
+      print(f"\n=== QUERY VECTOR DEBUG ===")
+      print(f"Unigram vector: {vec_q}")
+      print(f"Bigram vector: {vec_q_bigram}")
+      print(f"Unigram weight sum: {sum(vec_q.values()) if vec_q else 0}")
+      print(f"Bigram weight sum: {sum(vec_q_bigram.values()) if vec_q_bigram else 0}")
+
+    # token list for snippet matching
+    query_tokens_raw = preprocess_text_to_tokens(query_text, keep_numbers=False, min_lemma_len=1)
+    query_terms = expand_synonyms_query(query_tokens_raw)
+    # NO fuzzy correction applied to query_terms
+
+    if not vec_q and not vec_q_bigram:
+        if debug:
+            print("⚠ Query produced no valid terms.")
         return []
 
     hits = score_docs_for_query(vec_q, vec_q_bigram=vec_q_bigram, top_k=100,
