@@ -4,6 +4,7 @@ import math
 
 from pymongo import MongoClient
 from dotenv import load_dotenv
+from rapidfuzz import process, fuzz
 from preprocess_new import preprocess_text_to_tokens, build_index_if_needed
 
 # ---------------------------------------------------------------------
@@ -20,26 +21,62 @@ index_coll = db["preproc_index"]
 # ---------------------------------------------------------------------
 # Query Processing
 
+SYNONYM_MAP = {
+    "us": "united states",
+    "usa": "united states",
+    "uk": "united kingdom",
+    "pm": "prime minister",
+    "pres": "president",
+    "u.n": "united nations",
+    "un": "united nations",
+    "ai": "artificial intelligence",
+}
+
+def expand_synonyms_query(tokens):
+    expanded = []
+    for t in tokens:
+        if t.lower() in SYNONYM_MAP:
+            expanded.extend(SYNONYM_MAP[t.lower()].split())
+        else:
+            expanded.append(t)
+    return expanded
+
+def fuzzy_correct_tokens(tokens, vocab, threshold=90):
+    corrected = []
+    for t in tokens:
+        if len(t) <= 3:
+            corrected.append(t)
+            continue
+        
+        match, score, _ = process.extractOne(t, vocab, scorer=fuzz.partial_ratio)
+        if not vocab:
+            return tokens
+        if score >= threshold:
+            corrected.append(match)
+        else:
+            corrected.append(t)
+    return corrected
+
+
+
 def tf_weight(tf):
     """Compute logarithmic TF weight."""
     return 1.0 + math.log10(tf) if tf > 0 else 0.0
 
 
 def query_to_ltn_vector(query_text, idf_map, vocab=None):
-    """
-    Convert query to LTN (log-TF-IDF-normalized) vector.
-    
-    Args:
-        query_text: Query string
-        idf_map: IDF values for vocabulary
-        vocab: Optional vocabulary set to filter terms
-    
-    Returns:
-        Query vector dictionary
-    """
     tokens = preprocess_text_to_tokens(query_text, keep_numbers=False, min_lemma_len=1)
+
+    # --- Synonym expansion ---
+    tokens = expand_synonyms_query(tokens)
+
+    # --- Fuzzy correction ---
+    if vocab is not None:
+        tokens = fuzzy_correct_tokens(tokens, vocab)
+
     if not tokens:
         return {}
+   
 
     # Compute term frequencies in query
     tf_q = {}
@@ -241,7 +278,12 @@ def search(query_text, k=10, prune=True, gap_ratio_threshold=3.0, alpha=0.5, deb
     
     # Convert query to vector and get query terms
     vec_q = query_to_ltn_vector(query_text, idf_map, vocab=vocab)
-    query_terms = preprocess_text_to_tokens(query_text, keep_numbers=False, min_lemma_len=1)
+    query_tokens_raw = preprocess_text_to_tokens(query_text, keep_numbers=False, min_lemma_len=1)
+    query_terms = expand_synonyms_query(query_tokens_raw)
+
+    if vocab is not None:
+        query_terms = fuzzy_correct_tokens(query_terms, vocab)
+
     
     if not vec_q:
         print("⚠ Query produced no valid terms.")

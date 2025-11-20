@@ -7,3 +7,4 @@ pymongo
 requests
 google-generativeai
 scikit-learn
+rapidfuzz
