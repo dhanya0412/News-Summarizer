@@ -95,7 +95,7 @@ def clean_text(text):
     return text
 
 
-def preprocess_text_to_tokens(text: str, keep_numbers: bool = False,
+def preprocess_text_to_tokens(text: str, keep_numbers: bool = True,
                                min_lemma_len: int = 1, include_bigrams: bool = False):
     """
     Tokenize and lemmatize text, removing stopwords.
