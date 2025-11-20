@@ -2,7 +2,7 @@
 # Local path: backend/ingest/preprocess_bigrams.py
 """
 Document preprocessing pipeline (LNC-only).
-Everything is stored in `final_dataset` (no external vocab_terms / preproc_index).
+Everything is stored in final_dataset (no external vocab_terms / preproc_index).
 - content_clean: spaCy-lemmatized unigram tokens (space-joined) stored per-document.
 - vector: LNC (1 + log10(tf), L2-normalized) stored per-document for content terms.
 - term_lnc: per-doc raw lnc values (optional; stored only for terms present in the doc).
@@ -371,7 +371,7 @@ def process_unsanitized(batch_size=50, include_bigrams=False):
 # ---------------------------------------------------------------------
 # Entrypoint orchestration (LNC-only; no flags added for LNC)
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     import sys
     use_bigrams = '--bigrams' in sys.argv or '-b' in sys.argv
 

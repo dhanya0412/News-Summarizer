@@ -115,7 +115,7 @@ def query_to_bigram_vector(query_text, idf_map=None, vocab=None):
 def get_or_build_index_from_collection(collection, use_sampling=False, sample_size=1000, bigram_field_names=None, debug=False):
     """
     Returns (N, df_map, idf_map).
-    Tries to read single meta doc with _id="__index_meta__".
+    Tries to read single meta doc with id="index_meta_".
     If not present, scans final_dataset and builds df_map from content_clean unigrams
     and any bigram fields present (keys in title_bigram_lnc/title_bigram_weights or title_bigrams array).
     """
@@ -123,10 +123,10 @@ def get_or_build_index_from_collection(collection, use_sampling=False, sample_si
 
     # Try meta doc
     try:
-        meta = collection.find_one({"_id": "__index_meta__"})
+        meta = collection.find_one({"id": "index_meta_"})
         if meta and "N" in meta and "df_map" in meta and "idf_map" in meta:
             if debug:
-                print("Loaded index metadata from final_dataset.__index_meta__")
+                print("Loaded index metadata from final_dataset._index_meta_")
             return meta["N"], meta["df_map"], meta["idf_map"]
     except Exception:
         pass
@@ -173,7 +173,7 @@ def get_or_build_index_from_collection(collection, use_sampling=False, sample_si
     # try to persist meta for faster loads (best for production)
     try:
         collection.update_one(
-            {"_id": "__index_meta__"},
+            {"id": "index_meta_"},
             {"$set": {"N": N, "df_map": df_map, "idf_map": idf_map, "built_at": datetime.utcnow()}},
             upsert=True
         )
