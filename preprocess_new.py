@@ -371,7 +371,7 @@ def process_unsanitized(batch_size=50, include_bigrams=False):
 # ---------------------------------------------------------------------
 # Entrypoint orchestration (LNC-only; no flags added for LNC)
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     import sys
     use_bigrams = '--bigrams' in sys.argv or '-b' in sys.argv
 

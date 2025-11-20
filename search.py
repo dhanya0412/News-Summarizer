@@ -186,7 +186,7 @@ def get_or_build_index_from_collection(collection, use_sampling=False, sample_si
 # ---------------------------------------------------------------------
 # Scoring: hybrid content + title-bigram
 
-def score_docs_for_query(vec_q, vec_q_bigram=None, top_k=10, content_weight=0.6, bigram_weight=0.4):
+def score_docs_for_query(vec_q, vec_q_bigram=None, top_k=10, content_weight=0.7, bigram_weight=0.3):
     """
     For each document:
       - content_score_raw = sum(q_w * doc.vector[t])  (doc.vector is L2-normalized unigram vector)
@@ -202,8 +202,13 @@ def score_docs_for_query(vec_q, vec_q_bigram=None, top_k=10, content_weight=0.6,
          "title_bigram_lnc": 1, "title_bigram_weights": 1, "term_lnc": 1, "title_bigrams": 1}
     )
 
-    max_q_weight = sum(vec_q.values()) if vec_q else 0.0
-    max_q_bigram_weight = sum(vec_q_bigram.values()) if vec_q_bigram else 0.0
+    def l2_norm(vec):
+       return math.sqrt(sum(v * v for v in vec.values())) if vec else 0.0
+
+    max_q_weight = l2_norm(vec_q)
+    max_q_bigram_weight = l2_norm(vec_q_bigram)
+
+
 
     results = []
     for doc in cursor:
@@ -316,8 +321,8 @@ def get_relevant_snippet(content_clean, query_terms, snippet_length=300, window_
         snippet = snippet[:snippet_length].rsplit(' ', 1)[0] + "..."
     return snippet
 
-def search(query_text, k=10, prune=True, gap_ratio_threshold=3.0, alpha=0.5, debug=False,
-           content_weight=0.6, bigram_weight=0.4, use_sampling_index=False):
+def search(query_text, k=10, prune=True, gap_ratio_threshold=3.0, alpha=0.3, debug=False,
+           content_weight=0.7, bigram_weight=0.3, use_sampling_index=False):
     """
     Top-level search entrypoint. content_weight and bigram_weight default to 0.7 and 0.3.
     """
@@ -334,6 +339,14 @@ def search(query_text, k=10, prune=True, gap_ratio_threshold=3.0, alpha=0.5, deb
     # Query vectors (no fuzzy correction)
     vec_q = query_to_ltn_vector(query_text, idf_map, vocab=None)
     vec_q_bigram = query_to_bigram_vector(query_text, idf_map=idf_map, vocab=None)
+
+    # In the search() function, after creating vectors, add:
+    if debug or True:  # Force debug for now
+      print(f"\n=== QUERY VECTOR DEBUG ===")
+      print(f"Unigram vector: {vec_q}")
+      print(f"Bigram vector: {vec_q_bigram}")
+      print(f"Unigram weight sum: {sum(vec_q.values()) if vec_q else 0}")
+      print(f"Bigram weight sum: {sum(vec_q_bigram.values()) if vec_q_bigram else 0}")
 
     # token list for snippet matching
     query_tokens_raw = preprocess_text_to_tokens(query_text, keep_numbers=False, min_lemma_len=1)
@@ -404,8 +417,10 @@ def interactive_search():
                 print("❌ No results found.\n")
                 continue
             print(f"\n✓ Found {len(hits)} results:\n")
+            # In interactive_search(), change the output to:
             for i, h in enumerate(hits, 1):
-                print(f"{i}. [{h['relevance']:.4f}] {h['title']}")
+                print(f"{i}. [total={h['relevance']:.4f}] (content={h['content_score']:.4f}, bigram={h['bigram_score']:.4f})")
+                print(f"   {h['title']}")
                 print(f"   🔗 {h['url']}")
                 print(f"   📝 {h['snippet'][:150]}...")
                 if h.get('published'):
