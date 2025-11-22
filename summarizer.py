@@ -326,6 +326,70 @@ def cli_interface():
         except Exception as e:
             print(f"\n❌ Error: {e}\n")
 
+def generate_multiple_summaries(docs: List[Dict]) -> List[str]:
+    """
+    Generate individual summaries for multiple documents in a single API call.
+    
+    Args:
+        docs: List of document dicts (with 'title', 'content', 'url')
+    
+    Returns:
+        List of summary strings, one for each document
+    """
+    if not docs:
+        return []
+    
+    # Prepare all documents in one prompt
+    doc_context = ""
+    for i, doc in enumerate(docs, 1):
+        title = doc.get('title', 'Untitled')
+        content = doc.get('content', doc.get('snippet', ''))[:1500]  # Limit per doc
+        doc_context += f"[Document {i}]\nTitle: {title}\nContent: {content}\n\n"
+    
+    # Single prompt asking for individual summaries
+    prompt = f"""You are a news summarizer. I will provide {len(docs)} documents. 
+For EACH document, provide a separate 2-3 sentence summary.
+
+CRITICAL RULES:
+1. Summarize EACH document separately
+2. Use ONLY information from each document
+3. Format your response EXACTLY as:
+   Summary 1: [your summary here]
+   Summary 2: [your summary here]
+   Summary 3: [your summary here]
+   (and so on...)
+
+Documents:
+{doc_context}
+
+Provide individual summaries for each document:"""
+
+    try:
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        
+        # Parse out individual summaries
+        summaries = []
+        pattern = r'Summary \d+:\s*(.+?)(?=Summary \d+:|$)'
+        matches = re.findall(pattern, text, re.DOTALL)
+        
+        for match in matches:
+            summaries.append(match.strip())
+        
+        # Fallback: if parsing fails, split by newlines
+        if len(summaries) != len(docs):
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
+            summaries = lines[:len(docs)]
+        
+        # Ensure we have exactly as many summaries as docs
+        while len(summaries) < len(docs):
+            summaries.append("Summary unavailable.")
+        
+        return summaries[:len(docs)]
+    
+    except Exception as e:
+        return [f"Error: {str(e)}"] * len(docs)
+
 
 if __name__ == "__main__":
     # Check if API key is set
