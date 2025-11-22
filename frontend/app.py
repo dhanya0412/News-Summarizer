@@ -1,5 +1,6 @@
 # frontend/app.py
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 import streamlit as st
@@ -13,9 +14,15 @@ if env_path.exists():
 else:
     load_dotenv()
 
+# ADD THESE LINES TO FIX THE IMPORT
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("MONGO_DB")
 COLLECTION = "final_dataset"
+
+# ... rest of your code
 
 st.set_page_config(
     page_title="News Intelligence Hub",
@@ -252,18 +259,54 @@ st.markdown('</div>', unsafe_allow_html=True)
 st.markdown('<div class="headlines-section">', unsafe_allow_html=True)
 st.markdown('<div class="section-title">🔥 Top 5 Headlines</div>', unsafe_allow_html=True)
 
-docs = list(collection.find({}, {"title": 1}).sort("_id", -1).limit(5))
+docs = list(collection.find({}, {"title": 1, "content": 1, "description": 1, "snippet": 1, "url": 1}).sort("_id", -1).limit(5))
 
-for i, d in enumerate(docs, start=1):
-    title = d.get("title", "(no title)")
-    st.markdown(f"""
-    <div class="headline-item">
-        <div class="headline-text"><strong>{i}.</strong> {title}</div>
-    </div>
-    """, unsafe_allow_html=True)
+if docs:
+    # Import summarizer HERE (after sys.path is set)
+    try:
+        import summarizer as summ_mod
+    except ImportError as e:
+        st.error(f"Could not import summarizer: {e}")
+        st.stop()
+    
+    # Prepare docs for summarization
+    headline_docs = []
+    for d in docs:
+        headline_docs.append({
+            'title': d.get('title', 'Untitled'),
+            'content': d.get('content', d.get('description', d.get('snippet', ''))),
+            'url': d.get('url', '')
+        })
+    
+    # Generate all summaries in ONE API call
+    with st.spinner("🤖 Generating summaries..."):
+        try:
+            summaries = summ_mod.generate_multiple_summaries(headline_docs)
+        except Exception as e:
+            st.error(f"Error generating summaries: {e}")
+            summaries = ["Summary unavailable."] * len(docs)
+    
+    # Display each headline with its summary
+    for i, (d, summary) in enumerate(zip(docs, summaries), start=1):
+        title = d.get("title", "(no title)")
+        
+        with st.expander(f"**{i}.** {title}", expanded=False):
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #F0F8FF 0%, #E6F2FF 100%);
+                       padding: 20px;
+                       border-radius: 8px;
+                       border-left: 4px solid #4A90E2;
+                       line-height: 1.7;
+                       font-size: 1.05em;">
+                {summary}
+            </div>
+            """, unsafe_allow_html=True)
+            
+            url = d.get('url', '')
+            if url:
+                st.markdown(f"🔗 [Read Full Article]({url})")
 
 st.markdown('</div>', unsafe_allow_html=True)
-
 # Feature Cards Section
 st.markdown("<br>", unsafe_allow_html=True)
 
