@@ -1,3 +1,13 @@
 .env
 __pycache__/
 *.pyc
+data/
+clean_and_rebuild.py 
+domainName.py
+fetch_news_trial.py
+fetch_news.py
+fetch.py 
+gdelt.py 
+get_headlines.py 
+preprocess.py 
+scraper.py
