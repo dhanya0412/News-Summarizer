@@ -255,21 +255,26 @@ if search_btn and search_query.strip():
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Headlines Section
-st.markdown('<div class="headlines-section">', unsafe_allow_html=True)
-st.markdown('<div class="section-title">🔥 Top 5 Headlines</div>', unsafe_allow_html=True)
+# In app.py, modify the headlines section:
 
-docs = list(collection.find({}, {"title": 1, "content": 1, "description": 1, "snippet": 1, "url": 1}).sort("_id", -1).limit(5))
-
-if docs:
-    # Import summarizer HERE (after sys.path is set)
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def get_headlines_with_summaries():
+    """Fetch headlines and generate summaries - cached for performance"""
+    docs = list(collection.find(
+        {}, 
+        {"title": 1, "content": 1, "description": 1, "snippet": 1, "url": 1}
+    ).sort("_id", -1).limit(5))
+    
+    if not docs:
+        return [], []
+    
+    # Import summarizer
     try:
         import summarizer as summ_mod
-    except ImportError as e:
-        st.error(f"Could not import summarizer: {e}")
-        st.stop()
+    except ImportError:
+        return docs, ["Summary unavailable."] * len(docs)
     
-    # Prepare docs for summarization
+    # Prepare docs
     headline_docs = []
     for d in docs:
         headline_docs.append({
@@ -278,15 +283,22 @@ if docs:
             'url': d.get('url', '')
         })
     
-    # Generate all summaries in ONE API call
-    with st.spinner("🤖 Generating summaries..."):
-        try:
-            summaries = summ_mod.generate_multiple_summaries(headline_docs)
-        except Exception as e:
-            st.error(f"Error generating summaries: {e}")
-            summaries = ["Summary unavailable."] * len(docs)
+    # Generate summaries
+    try:
+        summaries = summ_mod.generate_multiple_summaries(headline_docs)
+    except Exception:
+        summaries = ["Summary unavailable."] * len(docs)
     
-    # Display each headline with its summary
+    return docs, summaries
+
+# Headlines Section
+st.markdown('<div class="headlines-section">', unsafe_allow_html=True)
+st.markdown('<div class="section-title">🔥 Top 5 Headlines</div>', unsafe_allow_html=True)
+
+# Get cached headlines and summaries
+docs, summaries = get_headlines_with_summaries()
+
+if docs:
     for i, (d, summary) in enumerate(zip(docs, summaries), start=1):
         title = d.get("title", "(no title)")
         
@@ -307,7 +319,7 @@ if docs:
                 st.markdown(f"🔗 [Read Full Article]({url})")
 
 st.markdown('</div>', unsafe_allow_html=True)
-# Feature Cards Section
+
 st.markdown("<br>", unsafe_allow_html=True)
 
 col1, col2 = st.columns(2, gap="large")
