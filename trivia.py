@@ -20,7 +20,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 MONGO_URI = os.getenv("MONGO_URI")
 DB = os.getenv("MONGO_DB")
 
-model = GenerativeModel("gemini-1.5-flash")   # USE VALID MODEL
+model = GenerativeModel("gemini-1.5-flash") 
 
 client = MongoClient(MONGO_URI)
 db = client[DB]
@@ -44,12 +44,10 @@ collection = db[f"trivia_{d[choice]}"]
 
 data = list(collection.find())
 
-# FIX: shuffle correctly
 random.shuffle(data)
 
-print("\n=== YOUR TRIVIA QUIZ ===\n")
+print("\nYOUR TRIVIA QUIZ\n")
 
-# Print 5 random questions
 for i in range(5):
     print(f"Q{i+1}. {data[i]['question'][3:]}")
     print(f"Answer: {data[i]['answer']}\n")

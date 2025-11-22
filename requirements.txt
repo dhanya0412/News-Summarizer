@@ -5,6 +5,7 @@ openai
 python-dotenv
 pymongo
 requests
+trafilatura
 google-generativeai
 scikit-learn
 rapidfuzz

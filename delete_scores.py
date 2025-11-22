@@ -2,7 +2,6 @@ from pymongo import MongoClient
 import os
 from dotenv import load_dotenv
 
-# Load environment
 load_dotenv()
 MONGO_URI = os.getenv("MONGO_URI")
 MONGO_DB = os.getenv("MONGO_DB")
@@ -11,7 +10,6 @@ client = MongoClient(MONGO_URI)
 db = client[MONGO_DB]
 coll = db["final_dataset"]
 
-# Remove content_clean from all docs
 result = coll.update_many({}, {"$unset": {"content_clean": ""}})
 print(f"Removed 'content_clean' from {result.modified_count} documents.")
 res = coll.update_many({"vector": {"$exists": True}}, {"$unset": {"vector": ""}})

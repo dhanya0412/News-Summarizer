@@ -10,9 +10,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import google.generativeai as genai
 from google.generativeai import GenerativeModel
 import os
-# ----------------------------------------------------
-# LOAD ENV + SETUP API
-# ----------------------------------------------------
+
 load_dotenv()
 gem_key = os.getenv("GEMINI_KEY")
 genai.configure(api_key=gem_key)
@@ -30,9 +28,6 @@ collection = db["raw_articles"]
 
 nlp = spacy.load("en_core_web_sm")
 
-# ----------------------------------------------------
-# SUMMARIZATION UTILS
-# ----------------------------------------------------
 def get_sentences(text):
     doc = nlp(text)
     return [sent.text.strip() for sent in doc.sents if sent.text.strip()]
@@ -52,9 +47,7 @@ def get_top_sentences(text, top_n=3):
     ranked.sort(key=lambda x: x[1], reverse=True)
     return [s for s, _ in ranked[:top_n]]
 
-# ----------------------------------------------------
-# PARSE QUESTION BLOCKS PROPERLY
-# ----------------------------------------------------
+
 def parse_questions_block(text):
     lines = text.strip().split("\n")
     questions = []
@@ -70,11 +63,9 @@ def parse_questions_block(text):
     if block:
         questions.append("\n".join(block))
 
-    return questions[:4]   # limit to 3-4
+    return questions[:4]   
 
-# ----------------------------------------------------
-# GEMINI QUESTION GENERATOR
-# ----------------------------------------------------
+
 def generate_questions_from_text(title, text):
     prompt = f"""
 You are a trivia question generator.
@@ -125,9 +116,6 @@ CONTENT:
 
     return parse_questions_block(response.text)
 
-# ----------------------------------------------------
-# MAIN LOOP
-# ----------------------------------------------------
 categories = ["technology", "sports", "entertainment", "business", "health", "india","politics"]
 
 for cat in categories:
@@ -162,25 +150,22 @@ for cat in categories:
 
         questions = generate_questions_from_text(title, combined_text)
 
-        # Create collection: trivia_<category>
+        #create trivia collection
         trivia_collection = db[f"trivia_{cat}"]
 
         for q in questions:
-            # Detect answer part
             ans_index = q.lower().rfind("ans:")
             if ans_index == -1:
                 continue
 
             question_text = q[:ans_index].strip()
-            answer = q[ans_index + 4:].strip()  # after "ans:"
+            answer = q[ans_index + 4:].strip()  
 
-            # Detect type
             if "a)" in q and "b)" in q:
                 qtype = "mcq"
             else:
                 qtype = "fill"
 
-            # Insert into DB
             trivia_collection.insert_one({
                 "title": title,
                 "category": cat,

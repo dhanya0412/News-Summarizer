@@ -1,4 +1,3 @@
-# frontend/pages/realorfake.py
 import os
 import random
 from pathlib import Path
@@ -6,7 +5,6 @@ from dotenv import load_dotenv
 import streamlit as st
 from pymongo import MongoClient
 
-# Load ENV
 project_root = Path(__file__).resolve().parents[2]
 env_path = project_root / ".env"
 load_dotenv(env_path)
@@ -26,16 +24,14 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Enhanced CSS
+#CSS for styling
 st.markdown("""
 <style>
-    /* Main background */
-    .main {
+    .main{
         background: linear-gradient(135deg, #F6F6F6 0%, #E8E8E8 100%);
     }
     
-    /* Hero section */
-    .hero-section {
+    .hero-section{
         background: linear-gradient(135deg, #DD795D 0%, #C96A4F 100%);
         padding: 50px 40px;
         border-radius: 20px;
@@ -44,7 +40,7 @@ st.markdown("""
         box-shadow: 0 10px 30px rgba(0,0,0,0.2);
     }
     
-    .hero-title {
+    .hero-title{
         color: white;
         font-size: 3em;
         font-weight: 700;
@@ -52,14 +48,13 @@ st.markdown("""
         text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
     }
     
-    .hero-subtitle {
+    .hero-subtitle{
         color: white;
         font-size: 1.2em;
         opacity: 0.95;
     }
     
-    /* Back button */
-    .back-link {
+    .back-link{
         display: inline-block;
         background: white;
         color: #DD795D;
@@ -71,13 +66,12 @@ st.markdown("""
         transition: all 0.3s ease;
     }
     
-    .back-link:hover {
+    .back-link:hover{
         background: #f0f0f0;
         transform: translateX(-3px);
     }
     
-    /* Quiz container */
-    .quiz-container {
+    .quiz-container{
         background: white;
         padding: 40px;
         border-radius: 20px;
@@ -85,7 +79,7 @@ st.markdown("""
         margin-bottom: 30px;
     }
     
-    .quiz-question {
+    .quiz-question{
         color: #0F1B2A;
         font-size: 1.5em;
         font-weight: 600;
@@ -95,8 +89,7 @@ st.markdown("""
         border-bottom: 3px solid #DD795D;
     }
     
-    /* Option buttons styling */
-    .stButton button {
+    .stButton button{
         background: linear-gradient(135deg, #ffffff 0%, #f5f5f5 100%) !important;
         color: #0F1B2A !important;
         border: 3px solid #C9CECA !important;
@@ -111,16 +104,15 @@ st.markdown("""
         margin: 10px 0 !important;
     }
     
-    .stButton button:hover {
+    .stButton button:hover{
         background: linear-gradient(135deg, #DD795D 0%, #C96A4F 100%) !important;
         color: white !important;
         border-color: #DD795D !important;
         transform: translateY(-3px);
         box-shadow: 0 6px 15px rgba(221, 121, 93, 0.3) !important;
     }
-    
-    /* Result section */
-    .result-container {
+ 
+    .result-container{
         background: white;
         padding: 30px;
         border-radius: 15px;
@@ -128,7 +120,7 @@ st.markdown("""
         margin: 20px 0;
     }
     
-    .result-title {
+    .result-title{
         font-size: 1.4em;
         font-weight: 600;
         color: #0F1B2A;
@@ -137,7 +129,7 @@ st.markdown("""
         padding-left: 15px;
     }
     
-    .real-headline {
+    .real-headline{
         background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
         padding: 20px;
         border-radius: 10px;
@@ -147,8 +139,7 @@ st.markdown("""
         line-height: 1.6;
     }
     
-    /* Source link styling */
-    .source-link {
+    .source-link{
         background: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%);
         padding: 20px;
         border-radius: 10px;
@@ -157,20 +148,19 @@ st.markdown("""
         text-align: center;
     }
     
-    .source-link a {
+    .source-link a{
         color: #1976D2;
         font-weight: 600;
         text-decoration: none;
         font-size: 1.1em;
     }
     
-    .source-link a:hover {
+    .source-link a:hover{
         color: #0D47A1;
         text-decoration: underline;
     }
-    
-    /* Play again button special styling */
-    .play-again-btn button {
+
+    .play-again-btn button{
         background: linear-gradient(135deg, #28a745 0%, #20923b 100%) !important;
         color: white !important;
         border: none !important;
@@ -178,13 +168,12 @@ st.markdown("""
         font-size: 1.2em !important;
     }
     
-    .play-again-btn button:hover {
+    .play-again-btn button:hover{
         background: linear-gradient(135deg, #20923b 0%, #1e7e34 100%) !important;
         transform: scale(1.05) !important;
     }
     
-    /* Messages */
-    .stSuccess {
+    .stSuccess{
         background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
         border-left: 5px solid #28a745;
         border-radius: 10px;
@@ -193,7 +182,7 @@ st.markdown("""
         font-weight: 600;
     }
     
-    .stError {
+    .stError{
         background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
         border-left: 5px solid #dc3545;
         border-radius: 10px;
@@ -202,20 +191,18 @@ st.markdown("""
         font-weight: 600;
     }
     
-    .stWarning {
+    .stWarning{
         background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
         border-left: 5px solid #ffc107;
         border-radius: 10px;
         padding: 20px;
     }
     
-    /* Hide default elements */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# Hero Section
 st.markdown("""
 <div class="hero-section">
     <div class="hero-title">🔍 REAL or FAKE</div>
@@ -223,11 +210,11 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Back button
+#return to home
 st.markdown('<a href="/" class="back-link">← Back to Home</a>', unsafe_allow_html=True)
 st.markdown("<br>", unsafe_allow_html=True)
 
-# Quiz loader
+#loads
 def load_quiz():
     """Fetch 1 real + 2 fake headlines and return structured state."""
     data = list(fake_coll.find({}, {"real_title": 1, "fake_title": 1, "_id": 0}))
@@ -259,22 +246,20 @@ def load_quiz():
         "selected": None
     }
 
-# Initialize session state
 if "quiz_state" not in st.session_state or not st.session_state.get("quiz_state"):
     st.session_state.quiz_state = load_quiz()
 
-# Check if enough data
+
 if st.session_state.quiz_state is None:
-    st.error("⚠️ Not enough quiz data in `fake_news_dataset` collection (need ≥3 rows).")
+    st.error("Not enough quiz data in `fake_news_dataset` collection (need ≥3 rows).")
     st.stop()
 
 qs = st.session_state.quiz_state
 
-# Display quiz
-st.markdown('<div class="quiz-container">', unsafe_allow_html=True)
-st.markdown('<div class="quiz-question">🤔 Which one of these headlines is REAL?</div>', unsafe_allow_html=True)
 
-# Display options
+st.markdown('<div class="quiz-container">', unsafe_allow_html=True)
+st.markdown('<div class="quiz-question">Which one of these headlines is REAL?</div>', unsafe_allow_html=True)
+
 for idx, opt in enumerate(qs["options"], start=1):
     clean_opt = opt.split("|")[0].strip()
     if st.button(f"📰 {clean_opt}", key=f"opt_{idx}"):
@@ -286,38 +271,38 @@ for idx, opt in enumerate(qs["options"], start=1):
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Show result
+#display results
 if qs["answered"]:
     st.markdown("<br>", unsafe_allow_html=True)
     
     if qs["result"]:
-        st.success("🎉 Correct! You found the real news!")
+        st.success("WUHU! You nailed it! Spotted the real news!")
     else:
-        st.error("❌ Oops! That was FAKE news. Better luck next time!")
+        st.error("OH NO! That was a fake headline. I suggest you to go read more news articles!")
     
-    # Show real headline
+    #show the asneer
     st.markdown('<div class="result-container">', unsafe_allow_html=True)
-    st.markdown('<div class="result-title">✅ The REAL headline was:</div>', unsafe_allow_html=True)
+    st.markdown('<div class="result-title">The REAL headline was:</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="real-headline">{qs["real"]}</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Source URL
+    #source url
     st.markdown('<div class="result-container">', unsafe_allow_html=True)
     st.markdown('<div class="result-title">🔗 Verify the Source</div>', unsafe_allow_html=True)
     real_doc = final_coll.find_one({"title": qs["real"]}, {"url": 1, "_id": 0})
     if real_doc and "url" in real_doc:
         st.markdown(f'<div class="source-link"><a href="{real_doc["url"]}" target="_blank">📖 Read the Full Article</a></div>', unsafe_allow_html=True)
     else:
-        st.warning("⚠️ Source URL not found in database.")
+        st.warning("Source URL not found in database.")
     st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Play again button
+    #play again
     col1, col2, col3 = st.columns([2, 1, 2])
     with col2:
         st.markdown('<div class="play-again-btn">', unsafe_allow_html=True)
-        if st.button("🔄 Play Again", use_container_width=True):
+        if st.button("Play Again", use_container_width=True):
             st.session_state.quiz_state = load_quiz()
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)

@@ -1,5 +1,3 @@
-# File: backend/ingest/preprocess_bigrams.py
-# Local path: backend/ingest/preprocess_bigrams.py
 """
 Document preprocessing pipeline (LNC-only).
 Everything is stored in final_dataset (no external vocab_terms / preproc_index).
@@ -22,8 +20,7 @@ import spacy
 import ftfy
 from tqdm import tqdm
 
-# ---------------------------------------------------------------------
-# Load environment variables
+#env
 load_dotenv()
 MONGO_URI = os.getenv("MONGO_URI")
 MONGO_DB = os.getenv("MONGO_DB")
@@ -32,12 +29,9 @@ client = MongoClient(MONGO_URI)
 db = client[MONGO_DB]
 coll = db["final_dataset"]
 
-# ---------------------------------------------------------------------
-# Load spaCy English model (disable unused components for speed)
+
 nlp = spacy.load("en_core_web_sm", disable=["ner", "parser"])
 
-# ---------------------------------------------------------------------
-# Compiled regex patterns for efficiency
 RE_URL = re.compile(r"http\S+", flags=re.IGNORECASE)
 RE_PCT = re.compile(r"(\d+(?:\.\d+)?)\s*%")
 RE_USA = re.compile(r"\bU\.?S\.?\b", flags=re.IGNORECASE)
@@ -45,8 +39,6 @@ RE_NON_WORD = re.compile(r"[^\w\s%]")
 RE_SPACES = re.compile(r"\s+")
 RE_POSSESSIVE = re.compile(r"â€™s\b|\'s\b")
 
-# ---------------------------------------------------------------------
-# Named Entity Recognition for Common Phrases
 COMMON_PHRASES = {
     'united states', 'new york', 'new delhi', 'saudi arabia',
     'world cup', 'supreme court', 'high court', 'lok sabha',
@@ -55,9 +47,7 @@ COMMON_PHRASES = {
     'white house', 'red fort', 'india gate'
 }
 
-# ---------------------------------------------------------------------
-# Text cleaning and tokenization
-
+#clean text and tokenize
 def clean_text(text):
     """Clean and normalize text with encoding fixes and standardization."""
     if not text:
@@ -65,7 +55,7 @@ def clean_text(text):
 
     text = ftfy.fix_text(text)
 
-    # Remove publish/update metadata lines
+    #remove the metadata from articles like updated date,published date,city + date headers,timezone words
     text = re.sub(
         r"^(updated|published)[^a-zA-Z0-9]+.*?\n",
         "",
@@ -73,7 +63,6 @@ def clean_text(text):
         flags=re.IGNORECASE | re.MULTILINE
     )
 
-    # Remove city + date headers
     text = re.sub(
         r"^[A-Z][a-z]+(?:\s[A-Z][a-z]+)?,\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)[^\n]*\n",
         "",
@@ -81,10 +70,8 @@ def clean_text(text):
         flags=re.IGNORECASE | re.MULTILINE
     )
 
-    # Remove timezone words
     text = re.sub(r"\b(ist|gmt|am|pm)\b", " ", text, flags=re.IGNORECASE)
 
-    # Original cleaning rules
     text = RE_POSSESSIVE.sub("", text)
     text = RE_URL.sub(" ", text)
     text = RE_PCT.sub(r"\1 percent", text)
@@ -94,13 +81,9 @@ def clean_text(text):
 
     return text
 
-
+#tokens and lemmatization
 def preprocess_text_to_tokens(text: str, keep_numbers: bool = True,
                                min_lemma_len: int = 1, include_bigrams: bool = False):
-    """
-    Tokenize and lemmatize text, removing stopwords.
-    Optionally append adjacent bigrams to the returned list (internal helper).
-    """
     text = clean_text(text)
     if not text:
         return []
@@ -121,8 +104,6 @@ def preprocess_text_to_tokens(text: str, keep_numbers: bool = True,
 
         if not lemma:
             continue
-
-        # protected phrase placeholder
         if lemma in phrase_map:
             tokens.append(lemma)
             continue
@@ -144,19 +125,11 @@ def preprocess_text_to_tokens(text: str, keep_numbers: bool = True,
 
 
 def preprocess_text(text: str, include_bigrams: bool = False, **kwargs):
-    """Convert text to space-separated string of processed tokens (unigrams by default)."""
     return " ".join(preprocess_text_to_tokens(text, include_bigrams=include_bigrams, **kwargs))
 
 
-# ---------------------------------------------------------------------
-# Title bigram PMI filtering (optional) - computes significant bigrams across titles
-# This only filters per-document stored title_bigrams; it does not write to any other collection.
-
+#compute significant bigrams using PMI, discard the infrequent ones
 def compute_bigram_scores(min_count=5, min_pmi=3.0):
-    """
-    Compute PMI for title bigrams across titles and filter stored per-document title_bigrams.
-    No external collections are used.
-    """
     print("Computing significant title bigrams (PMI)...")
 
     unigram_counts = Counter()
@@ -191,7 +164,6 @@ def compute_bigram_scores(min_count=5, min_pmi=3.0):
 
     print(f"Found {len(significant_bigrams)} significant title bigrams (PMI >= {min_pmi})")
 
-    # Filter per-document stored title_bigrams (if any)
     if significant_bigrams:
         cursor2 = coll.find({"title_bigrams": {"$exists": True}}, {"title_bigrams": 1})
         bulk_ops = []
@@ -212,22 +184,13 @@ def compute_bigram_scores(min_count=5, min_pmi=3.0):
     print("Title bigram filtering complete (stored in final_dataset only).")
     return significant_bigrams
 
-
-# ---------------------------------------------------------------------
-# LNC builders: content and title bigrams
-
+#tf weight raw
 def tf_weight_raw(tf):
-    """Raw L value: 1 + log10(tf) for tf>0, else 0"""
     return 1.0 + math.log10(tf) if tf > 0 else 0.0
 
-
+#LNC vectors
+#normalization
 def build_and_store_doc_vectors_lnc():
-    """
-    Compute per-document LNC (1 + log10(tf), then L2-normalize) for content terms.
-    Stores per-document:
-      - vector: {term: normalized_lnc}
-      - term_lnc: {term: raw_lnc}    (only for terms in that document)
-    """
     print("Building and storing per-document LNC vectors (content)...")
     cursor = coll.find({"content_clean": {"$exists": True, "$ne": ""}}, {"content_clean": 1})
     bulk_ops = []
@@ -243,10 +206,9 @@ def build_and_store_doc_vectors_lnc():
         terms = content.split()
         tf = Counter(terms)
 
-        # raw lnc values
+        #raw lnc values
         lnc_raw = {t: tf_weight_raw(f) for t, f in tf.items()}
 
-        # L2 normalization
         norm = math.sqrt(sum(v * v for v in lnc_raw.values()))
         if norm > 0:
             vec = {t: (v / norm) for t, v in lnc_raw.items()}
@@ -266,19 +228,7 @@ def build_and_store_doc_vectors_lnc():
 
 
 def build_and_store_title_bigram_lnc(include_bigrams=False):
-    """
-    For each document, compute adjacent title bigrams (from spaCy-lemmatized title tokens)
-    and store LNC weights for those bigrams.
-
-    Stores per-document:
-      - title_bigrams: [bigrams]            (if include_bigrams True)
-      - title_bigram_weights: {bigram: normalized_lnc}
-      - title_bigram_lnc: {bigram: raw_lnc}
-
-    If include_bigrams is False, removes any existing title_bigram fields.
-    """
     if not include_bigrams:
-        # remove any existing fields safely
         cursor = coll.find({"$or": [{"title_bigrams": {"$exists": True}}, {"title_bigram_weights": {"$exists": True}}, {"title_bigram_lnc": {"$exists": True}}]}, {"_id": 1})
         bulk = []
         for doc in tqdm(cursor, desc="Removing title bigram fields"):
@@ -299,7 +249,6 @@ def build_and_store_title_bigram_lnc(include_bigrams=False):
         tokens = preprocess_text_to_tokens(title, include_bigrams=False)
         bigrams = [f"{tokens[i]}_{tokens[i+1]}" for i in range(len(tokens)-1)] if len(tokens) >= 2 else []
         if not bigrams:
-            # remove fields if present
             bulk_ops.append(pymongo.UpdateOne({"_id": doc["_id"]}, {"$unset": {"title_bigrams": "", "title_bigram_weights": "", "title_bigram_lnc": ""}}))
             if len(bulk_ops) >= 500:
                 coll.bulk_write(bulk_ops, ordered=False)
@@ -326,14 +275,7 @@ def build_and_store_title_bigram_lnc(include_bigrams=False):
     print("Per-document title bigram LNC weights stored.")
 
 
-# ---------------------------------------------------------------------
-# Main preprocessing loop
-
 def process_unsanitized(batch_size=50, include_bigrams=False):
-    """
-    - content_clean: cleaned + tokenized + lemmatized unigram string (stored per-document).
-    - title_bigrams: adjacent bigrams stored per-document only if include_bigrams True.
-    """
     processed_count = 0
     while True:
         docs = list(coll.find({"content": {"$ne": None}, "content_clean": {"$exists": False}}).limit(batch_size))
@@ -341,7 +283,7 @@ def process_unsanitized(batch_size=50, include_bigrams=False):
             print("✓ No more documents to preprocess.")
             break
 
-        print(f"📝 Processing batch of {len(docs)} documents...")
+        print(f"Processing batch of {len(docs)} documents...")
         ops = []
         for doc in docs:
             raw = doc.get("content", "") or ""
@@ -368,9 +310,6 @@ def process_unsanitized(batch_size=50, include_bigrams=False):
     print(f"✓ Total processed: {processed_count}")
 
 
-# ---------------------------------------------------------------------
-# Entrypoint orchestration (LNC-only; no flags added for LNC)
-
 if __name__ == "__main__":
     import sys
     use_bigrams = '--bigrams' in sys.argv or '-b' in sys.argv
@@ -388,7 +327,6 @@ if __name__ == "__main__":
 
     if use_bigrams:
         print("\n[3/3] Building & storing per-document title bigram LNC weights...")
-        # Optionally you can run compute_bigram_scores(...) before this to filter bigrams globally.
         build_and_store_title_bigram_lnc(include_bigrams=True)
     else:
         print("\n[3/3] Skipping title bigram weight computation (use --bigrams to enable).")

@@ -1,4 +1,3 @@
-# frontend/app.py
 import os
 import sys
 from pathlib import Path
@@ -6,7 +5,6 @@ from dotenv import load_dotenv
 import streamlit as st
 from pymongo import MongoClient
 
-# Load .env from project root
 project_root = Path(__file__).resolve().parents[1]
 env_path = project_root / ".env"
 if env_path.exists():
@@ -14,15 +12,12 @@ if env_path.exists():
 else:
     load_dotenv()
 
-# ADD THESE LINES TO FIX THE IMPORT
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("MONGO_DB")
 COLLECTION = "final_dataset"
-
-# ... rest of your code
 
 st.set_page_config(
     page_title="News Intelligence Hub",
@@ -38,22 +33,18 @@ def get_db():
 db = get_db()
 collection = db[COLLECTION]
 
-# Enhanced CSS styling
 st.markdown("""
 <style>
-    /* Main background */
-    .main {
+    .main{
         background: linear-gradient(135deg, #F6F6F6 0%, #E8E8E8 100%);
     }
     
-    /* Remove default padding */
-    .block-container {
+    .block-container{
         padding-top: 2rem;
         padding-bottom: 2rem;
     }
     
-    /* Hero section */
-    .hero-section {
+    .hero-section{
         background: linear-gradient(135deg, #DD795D 0%, #C96A4F 100%);
         padding: 60px 40px;
         border-radius: 20px;
@@ -62,7 +53,7 @@ st.markdown("""
         box-shadow: 0 10px 30px rgba(0,0,0,0.2);
     }
     
-    .hero-title {
+    .hero-title{
         color: white;
         font-size: 3.5em;
         font-weight: 700;
@@ -70,15 +61,14 @@ st.markdown("""
         text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
     }
     
-    .hero-subtitle {
+    .hero-subtitle{
         color: white;
         font-size: 1.3em;
         opacity: 0.95;
         margin-bottom: 30px;
     }
-    
-    /* Search bar container */
-    .search-container {
+   
+    .search-container{
         background: white;
         padding: 30px;
         border-radius: 15px;
@@ -86,8 +76,7 @@ st.markdown("""
         margin-bottom: 40px;
     }
     
-    /* Search input styling */
-    .stTextInput input {
+    .stTextInput input{
         border: 2px solid #C9CECA !important;
         border-radius: 10px !important;
         padding: 15px !important;
@@ -95,13 +84,12 @@ st.markdown("""
         transition: all 0.3s ease;
     }
     
-    .stTextInput input:focus {
+    .stTextInput input:focus{
         border-color: #DD795D !important;
         box-shadow: 0 0 0 3px rgba(221, 121, 93, 0.2) !important;
     }
-    
-    /* Search button */
-    .search-button button {
+   
+    .search-button button{
         background: linear-gradient(135deg, #DD795D 0%, #C96A4F 100%) !important;
         color: white !important;
         border: none !important;
@@ -113,13 +101,12 @@ st.markdown("""
         box-shadow: 0 4px 10px rgba(221, 121, 93, 0.3) !important;
     }
     
-    .search-button button:hover {
+    .search-button button:hover{
         transform: translateY(-2px);
         box-shadow: 0 6px 15px rgba(221, 121, 93, 0.4) !important;
     }
     
-    /* Headlines section */
-    .headlines-section {
+    .headlines-section{
         background: white;
         padding: 30px;
         border-radius: 15px;
@@ -127,7 +114,7 @@ st.markdown("""
         margin-bottom: 40px;
     }
     
-    .section-title {
+    .section-title{
         color: #0F1B2A;
         font-size: 1.8em;
         font-weight: 600;
@@ -136,7 +123,7 @@ st.markdown("""
         padding-left: 15px;
     }
     
-    .headline-item {
+    .headline-item{
         padding: 15px;
         margin: 10px 0;
         background: linear-gradient(135deg, #F6F6F6 0%, #EFEFEF 100%);
@@ -146,19 +133,18 @@ st.markdown("""
         cursor: pointer;
     }
     
-    .headline-item:hover {
+    .headline-item:hover{
         transform: translateX(5px);
         box-shadow: 0 3px 10px rgba(0,0,0,0.1);
     }
     
-    .headline-text {
+    .headline-text{
         color: #0F1B2A;
         font-size: 1.05em;
         line-height: 1.6;
     }
     
-    /* Feature cards */
-    .feature-card {
+    .feature-card{
         background: white;
         padding: 40px 30px;
         border-radius: 15px;
@@ -169,33 +155,32 @@ st.markdown("""
         border: 2px solid transparent;
     }
     
-    .feature-card:hover {
+    .feature-card:hover{
         transform: translateY(-5px);
         box-shadow: 0 10px 25px rgba(0,0,0,0.15);
         border-color: #DD795D;
     }
     
-    .feature-icon {
+    .feature-icon{
         font-size: 4em;
         margin-bottom: 20px;
     }
     
-    .feature-title {
+    .feature-title{
         color: #0F1B2A;
         font-size: 1.5em;
         font-weight: 600;
         margin-bottom: 15px;
     }
     
-    .feature-description {
+    .feature-description{
         color: #666;
         font-size: 1em;
         line-height: 1.6;
         margin-bottom: 25px;
     }
     
-    /* Feature buttons */
-    .stButton button {
+    .stButton button{
         width: 100%;
         background: linear-gradient(135deg, #DD795D 0%, #C96A4F 100%) !important;
         color: white !important;
@@ -207,13 +192,12 @@ st.markdown("""
         transition: all 0.3s ease !important;
     }
     
-    .stButton button:hover {
+    .stButton button:hover{
         transform: scale(1.05);
         box-shadow: 0 5px 15px rgba(221, 121, 93, 0.4) !important;
     }
-    
-    /* Footer */
-    .footer {
+
+    .footer{
         text-align: center;
         padding: 30px;
         color: #666;
@@ -221,27 +205,24 @@ st.markdown("""
         margin-top: 50px;
     }
     
-    /* Hide streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# Hero Section
 st.markdown("""
 <div class="hero-section">
-    <div class="hero-title">📰 News Intelligence Hub</div>
-    <div class="hero-subtitle">Your AI-powered gateway to news analysis, trivia, and fact-checking</div>
+    <div class="hero-title">News Summarizer</div>
+    <div class="hero-subtitle">Get to the point information about a any current NEWS.</div>
 </div>
 """, unsafe_allow_html=True)
 
-# Search Section
 st.markdown('<div class="search-container">', unsafe_allow_html=True)
 col1, col2 = st.columns([5, 1])
 with col1:
     search_query = st.text_input(
         "Search",
-        placeholder="🔍 Ask a question or search for news...",
+        placeholder="Ask a question or search for news...",
         label_visibility="collapsed"
     )
 with col2:
@@ -255,9 +236,7 @@ if search_btn and search_query.strip():
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# In app.py, modify the headlines section:
-
-@st.cache_data(ttl=3600)  # Cache for 1 hour
+@st.cache_data(ttl=3600)  #store the cache headlines for 1 hour
 def get_headlines_with_summaries():
     """Fetch headlines and generate summaries - cached for performance"""
     docs = list(collection.find(
@@ -268,13 +247,11 @@ def get_headlines_with_summaries():
     if not docs:
         return [], []
     
-    # Import summarizer
     try:
         import summarizer as summ_mod
     except ImportError:
         return docs, ["Summary unavailable."] * len(docs)
     
-    # Prepare docs
     headline_docs = []
     for d in docs:
         headline_docs.append({
@@ -283,7 +260,6 @@ def get_headlines_with_summaries():
             'url': d.get('url', '')
         })
     
-    # Generate summaries
     try:
         summaries = summ_mod.generate_multiple_summaries(headline_docs)
     except Exception:
@@ -291,11 +267,10 @@ def get_headlines_with_summaries():
     
     return docs, summaries
 
-# Headlines Section
 st.markdown('<div class="headlines-section">', unsafe_allow_html=True)
-st.markdown('<div class="section-title">🔥 Top 5 Headlines</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">Top 5 Headlines</div>', unsafe_allow_html=True)
 
-# Get cached headlines and summaries
+#get cached headlines and summaries
 docs, summaries = get_headlines_with_summaries()
 
 if docs:
@@ -351,10 +326,3 @@ with col2:
     """, unsafe_allow_html=True)
     if st.button("🕵️ TEST YOUR SKILLS", key="fake_btn"):
         st.switch_page("pages/realorfake.py")
-
-# Footer
-st.markdown("""
-<div class="footer">
-    <p>Powered by MongoDB & Streamlit | Built for News Intelligence</p>
-</div>
-""", unsafe_allow_html=True)

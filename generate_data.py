@@ -29,12 +29,12 @@ class IndiaCompleteCorpusBuilder:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
         
-        # MongoDB setup
+        #setup mongodb
         self.client = MongoClient(mongo_uri)
         self.db = self.client[db_name]
         self.collection = self.db['final_dataset']
         
-        # Create indexes for better performance
+        #create indexes
         self.collection.create_index("url", unique=True)
         self.collection.create_index([("published", -1)])
         self.collection.create_index("domain_name")
@@ -138,7 +138,7 @@ class IndiaCompleteCorpusBuilder:
                     url = entry.get('link', 'N/A')
                     domain = urlparse(url).netloc if url != 'N/A' else 'Unknown'
                     
-                    # Extract category from feed tags
+                    #extract category if available
                     category = None
                     if hasattr(entry, 'tags') and entry.tags:
                         category = entry.tags[0].get('term', None)
@@ -148,7 +148,7 @@ class IndiaCompleteCorpusBuilder:
                         'url': url,
                         'domain_name': domain,
                         'published': self._parse_date(entry.get('published', entry.get('updated', ''))),
-                        'content': '',  # To be scraped
+                        'content': '',  
                         'lang': 'en',
                         'country': 'IN',
                         'category': category,
@@ -215,11 +215,6 @@ class IndiaCompleteCorpusBuilder:
                         if self._is_indian_source(domain):
                             url = article.get('url', 'N/A')
                             
-                            # CRITICAL FIX: Use correct date field
-                            # GDELT provides multiple date fields:
-                            # - seendate: when GDELT first saw it (usually same day)
-                            # - socialimage: not a date
-                            # We should parse seendate properly
                             seen_date = article.get('seendate', '')
                             parsed_date = self._parse_gdelt_date(seen_date)
                             
@@ -249,7 +244,7 @@ class IndiaCompleteCorpusBuilder:
                 print(f"[SKIP] Skipping {current_date.date()} after {max_retries} failures.")
 
             current_date = next_date
-            time.sleep(1)  # Rate limiting
+            time.sleep(1) 
 
         return all_articles
 
@@ -268,7 +263,6 @@ class IndiaCompleteCorpusBuilder:
 
         s = date_string.strip()
 
-        # 1. GDELT compact format: 20251118T123000Z or 20251118T123000
         try:
             if 'T' in s:
                 clean = s.replace('T', '').replace('Z', '')
@@ -277,18 +271,16 @@ class IndiaCompleteCorpusBuilder:
         except:
             pass
 
-        # 2. Compact numeric: 20251118123000
         try:
             if len(s) == 14 and s.isdigit():
                 return datetime.strptime(s, '%Y%m%d%H%M%S')
         except:
             pass
 
-        # 3. ISO-like formats
         fmt_list = [
-            '%Y-%m-%dT%H:%M:%S%z',   # 2025-11-18T12:30:00+00:00
-            '%Y-%m-%dT%H:%M:%S',     # 2025-11-18T12:30:00
-            '%Y-%m-%d %H:%M:%S',     # 2025-11-18 12:30:00
+            '%Y-%m-%dT%H:%M:%S%z',   
+            '%Y-%m-%dT%H:%M:%S',     
+            '%Y-%m-%d %H:%M:%S',     
         ]
 
         for fmt in fmt_list:
@@ -297,7 +289,6 @@ class IndiaCompleteCorpusBuilder:
             except:
                 continue
 
-        # 4. Final fallback
         print(f"[WARN] Could not parse GDELT date '{date_string}'. Using UTC now.")
         return datetime.utcnow()
 
@@ -318,7 +309,7 @@ class IndiaCompleteCorpusBuilder:
                     no_fallback=True
                 )
                 if content:
-                    article['content'] = content[:50000] if content else ''  # Limit to 50k chars
+                    article['content'] = content[:50000] if content else ''  
                     article['scraped_at'] = datetime.utcnow()
                 
             except Exception as e:
@@ -344,7 +335,6 @@ class IndiaCompleteCorpusBuilder:
         
         operations = []
         for article in articles:
-            # Prepare document
             doc = {
                 'title': article.get('title'),
                 'url': article.get('url'),
@@ -360,7 +350,6 @@ class IndiaCompleteCorpusBuilder:
                 'updated_at': datetime.utcnow()
             }
             
-            # Create upsert operation
             operations.append(
                 UpdateOne(
                     {'url': article['url']},
@@ -369,7 +358,6 @@ class IndiaCompleteCorpusBuilder:
                 )
             )
         
-        # Execute bulk operation
         if operations:
             result = self.collection.bulk_write(operations, ordered=False)
             return result.upserted_count, result.modified_count
@@ -397,24 +385,21 @@ class IndiaCompleteCorpusBuilder:
         if not date_string or date_string == 'N/A':
             return datetime.utcnow()
         
-        # Try common RSS formats
         formats = [
-            '%a, %d %b %Y %H:%M:%S %z',  # RFC 822
+            '%a, %d %b %Y %H:%M:%S %z',  
             '%a, %d %b %Y %H:%M:%S %Z',
-            '%Y-%m-%dT%H:%M:%S%z',       # ISO 8601
+            '%Y-%m-%dT%H:%M:%S%z',       
             '%Y-%m-%dT%H:%M:%SZ',
             '%Y-%m-%d %H:%M:%S',
         ]
         
         for fmt in formats:
             try:
-                # Truncate to avoid timezone parsing issues
                 date_str = date_string[:35]
                 return datetime.strptime(date_str, fmt)
             except:
                 continue
         
-        # Fallback
         print(f"[WARN] Could not parse date: {date_string}")
         return datetime.utcnow()
 
@@ -433,13 +418,11 @@ class IndiaCompleteCorpusBuilder:
         """Save corpus to multiple formats."""
         os.makedirs(output_dir, exist_ok=True)
 
-        # JSON format
         json_path = f"{output_dir}/{filename}.json"
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(articles, f, indent=2, ensure_ascii=False, default=str)
         print(f"[OK] Saved JSON: {json_path}")
 
-        # Text corpus format
         txt_path = f"{output_dir}/{filename}_corpus.txt"
         with open(txt_path, "w", encoding="utf-8") as f:
             for i, article in enumerate(articles):
@@ -454,7 +437,6 @@ class IndiaCompleteCorpusBuilder:
                 f.write(f"{article.get('content', '')}\n\n")
         print(f"[OK] Saved Text: {txt_path}")
 
-        # CSV metadata
         csv_path = f"{output_dir}/{filename}_metadata.csv"
         with open(csv_path, "w", encoding="utf-8") as f:
             f.write("id,title,domain_name,published,url,lang,country,category\n")
@@ -471,12 +453,11 @@ class IndiaCompleteCorpusBuilder:
 
 
 if __name__ == "__main__":
-    # Initialize with MongoDB connection
 
     builder = IndiaCompleteCorpusBuilder(
         mongo_uri=os.getenv("MONGO_URI"),
         db_name=os.getenv("MONGO_DB")
     )
     
-    # Build corpus for November 2025
+    #getting the corpus for November 2025 (for testing)
     builder.build_monthly_corpus(2025, 11, "india_corpus")

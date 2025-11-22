@@ -1,10 +1,9 @@
-# frontend/pages/summary.py
 import os
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load .env from project root
+#env loaidng
 project_root = Path(__file__).resolve().parents[2]
 env_path = project_root / ".env"
 load_dotenv(dotenv_path=str(env_path))
@@ -14,11 +13,11 @@ from pymongo import MongoClient
 
 st.set_page_config(page_title="News Summarizer", layout="wide", initial_sidebar_state="collapsed")
 
-# Ensure project root is on sys.path
+#project root to sys.path``
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-# Import modules
+#summarizer import
 try:
     import summarizer as summ_mod
 except Exception:
@@ -31,13 +30,12 @@ except Exception:
     st.error("Could not import search.py from project root.")
     st.stop()
 
-# Validate functions
 for fn in ("generate_summary", "answer_followup"):
     if not hasattr(summ_mod, fn):
         st.error(f"summarizer.py missing required function: {fn}")
         st.stop()
 
-# DB config
+#congfig to mongodb
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("MONGO_DB")
 COLLECTION = "final_dataset"
@@ -50,16 +48,13 @@ def get_db():
 db = get_db()
 collection = db[COLLECTION]
 
-# Enhanced CSS
 st.markdown("""
 <style>
-    /* Main background */
-    .main {
+    .main{
         background: linear-gradient(135deg, #F6F6F6 0%, #E8E8E8 100%);
     }
     
-    /* Header navigation bar */
-    .nav-bar {
+    .nav-bar{
         background: linear-gradient(135deg, #DD795D 0%, #C96A4F 100%);
         padding: 20px 30px;
         border-radius: 15px;
@@ -70,14 +65,14 @@ st.markdown("""
         justify-content: space-between;
     }
     
-    .nav-title {
+    .nav-title{
         color: black;
         font-size: 2em;
         font-weight: 700;
         margin: 0;
     }
     
-    .back-button {
+    .back-button{
         background: white !important;
         color: #DD795D !important;
         padding: 10px 20px;
@@ -87,13 +82,12 @@ st.markdown("""
         transition: all 0.3s ease;
     }
     
-    .back-button:hover {
+    .back-button:hover{
         background: #f0f0f0 !important;
         transform: translateX(-3px);
     }
     
-    /* Search bar */
-    .search-section {
+    .search-section{
         background: white;
         padding: 25px;
         border-radius: 15px;
@@ -101,20 +95,19 @@ st.markdown("""
         margin-bottom: 30px;
     }
     
-    .stTextInput input {
+    .stTextInput input{
         border: 2px solid #C9CECA !important;
         border-radius: 10px !important;
         padding: 15px !important;
         font-size: 1.05em !important;
     }
     
-    .stTextInput input:focus {
+    .stTextInput input:focus{
         border-color: #DD795D !important;
         box-shadow: 0 0 0 3px rgba(221, 121, 93, 0.2) !important;
     }
     
-    /* Section containers */
-    .content-section {
+    .content-section{
         background: white;
         padding: 30px;
         border-radius: 15px;
@@ -122,7 +115,7 @@ st.markdown("""
         margin-bottom: 25px;
     }
     
-    .section-header {
+    .section-header{
         color: #0F1B2A;
         font-size: 1.8em;
         font-weight: 600;
@@ -131,8 +124,7 @@ st.markdown("""
         padding-left: 15px;
     }
     
-    /* Query display */
-    .query-box {
+    .query-box{
         background: linear-gradient(135deg, #FFF5F2 0%, #FFE8E0 100%);
         padding: 20px;
         border-radius: 10px;
@@ -140,35 +132,33 @@ st.markdown("""
         margin-bottom: 20px;
     }
     
-    .query-text {
+    .query-text{
         color: #0F1B2A;
         font-size: 1.2em;
         font-weight: 600;
         margin: 0;
     }
     
-    /* Results styling */
-    .stExpander {
+    .stExpander{
         background: #F9F9F9;
         border: 2px solid #E0E0E0;
         border-radius: 10px;
         margin-bottom: 10px;
     }
     
-    .stExpander:hover {
+    .stExpander:hover{
         border-color: #DD795D;
         box-shadow: 0 3px 10px rgba(0,0,0,0.1);
     }
     
-    /* Metrics */
-    .stMetric {
+    .stMetric{
         background: linear-gradient(135deg, #DD795D 0%, #C96A4F 100%);
         padding: 20px;
         border-radius: 10px;
         text-align: center;
     }
     
-    .stMetric label {
+    .stMetric label{
         color: white !important;
         font-weight: 600 !important;
     }
@@ -178,8 +168,7 @@ st.markdown("""
         font-size: 2em !important;
     }
     
-    /* Buttons */
-    .stButton button {
+    .stButton button{
         background: linear-gradient(135deg, #DD795D 0%, #C96A4F 100%) !important;
         color: white !important;
         border: none !important;
@@ -189,13 +178,12 @@ st.markdown("""
         transition: all 0.3s ease !important;
     }
     
-    .stButton button:hover {
+    .stButton button:hover{
         transform: translateY(-2px);
         box-shadow: 0 5px 15px rgba(221, 121, 93, 0.4) !important;
     }
     
-    /* Summary box */
-    .summary-box {
+    .summary-box{
         background: linear-gradient(135deg, #F0F8FF 0%, #E6F2FF 100%);
         padding: 25px;
         border-radius: 10px;
@@ -205,44 +193,40 @@ st.markdown("""
         font-size: 1.05em;
     }
     
-    /* Messages */
-    .stSuccess {
+    .stSuccess{
         background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
         border-left: 4px solid #28a745;
         border-radius: 10px;
         padding: 15px;
     }
     
-    .stError {
+    .stError{
         background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
         border-left: 4px solid #dc3545;
         border-radius: 10px;
         padding: 15px;
     }
     
-    .stInfo {
+    .stInfo{
         background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
         border-left: 4px solid #17a2b8;
         border-radius: 10px;
         padding: 15px;
     }
     
-    /* Hide default elements */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# Navigation bar
 col1, col2 = st.columns([5, 1])
 with col1:
-    st.markdown('<div class="nav-title">📝 News Summarizer</div>', unsafe_allow_html=True)
+    st.markdown('<div class="nav-title">News Summarizer</div>', unsafe_allow_html=True)
 with col2:
     st.markdown('<a href="/" class="back-button">← Home</a>', unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# Get current query
 raw_q = st.query_params.get("q", None)
 if isinstance(raw_q, list) and raw_q:
     current_query = raw_q[0].strip()
@@ -256,7 +240,7 @@ if not current_query:
     elif isinstance(qs_state, str) and qs_state.strip():
         current_query = qs_state.strip()
 
-# Search section
+#search section
 st.markdown('<div class="search-section">', unsafe_allow_html=True)
 col1, col2 = st.columns([5, 1])
 with col1:
@@ -273,7 +257,6 @@ with col2:
             st.rerun()
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Re-evaluate query
 raw_q = st.query_params.get("q", None)
 if isinstance(raw_q, list) and raw_q:
     query = raw_q[0].strip()
@@ -288,20 +271,20 @@ if not query:
         query = qs_state.strip()
 
 if not query:
-    st.info("💡 No query provided. Use the search box above or return to the dashboard.")
+    st.info("No query provided. Use the search box above or return to the dashboard.")
     st.stop()
 
 # Display query
 st.markdown('<div class="content-section">', unsafe_allow_html=True)
-st.markdown('<div class="section-header">🎯 Your Query</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header"> Your Query</div>', unsafe_allow_html=True)
 st.markdown(f'<div class="query-box"><p class="query-text">{query}</p></div>', unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Retrieval
 st.markdown('<div class="content-section">', unsafe_allow_html=True)
-st.markdown('<div class="section-header">🔎 Search Results</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">Search Results</div>', unsafe_allow_html=True)
 
-with st.spinner("🔄 Searching the database..."):
+with st.spinner("Searching the database..."):
     try:
         results = search_mod.search(query, k=10, prune=True, debug=False)
     except Exception as e:
@@ -312,67 +295,66 @@ if not results:
     st.warning("No results found. Try a different query.")
     st.stop()
 
-# Display results
+#resultss
 cols = st.columns([4, 1])
 with cols[0]:
     for i, r in enumerate(results, start=1):
         title = r.get("title", "(no title)") if isinstance(r, dict) else getattr(r, "title", "(no title)")
         snippet = (r.get("content") or r.get("snippet") or "") if isinstance(r, dict) else (getattr(r, "content", "") or "")
         url = r.get("url", "") if isinstance(r, dict) else getattr(r, "url", "")
-        with st.expander(f"📄 {i}. {title}", expanded=False):
+        with st.expander(f" {i}. {title}", expanded=False):
             if snippet:
                 st.write(snippet[:800] + ("..." if len(snippet) > 800 else ""))
             if url:
-                st.markdown(f"🔗 [Read Full Article]({url})")
+                st.markdown(f"[Read Full Article]({url})")
 
 with cols[1]:
-    st.metric("📊 Documents", f"{len(results)}")
-    if st.button("🔄 Refresh", use_container_width=True):
+    st.metric("Documents", f"{len(results)}")
+    if st.button("Refresh", use_container_width=True):
         st.rerun()
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Cache docs
+#cache the results
 st.session_state["cached_docs"] = results
 st.session_state["original_query"] = query
 
-# Summary section
+#get summary
 st.markdown('<div class="content-section">', unsafe_allow_html=True)
 st.markdown('<div class="section-header">✨ AI Summary</div>', unsafe_allow_html=True)
 
-with st.spinner("🤖 Generating summary..."):
+with st.spinner("Generating summary..."):
     try:
         summary, cited = summ_mod.generate_summary(query, results)
     except Exception as e:
-        st.error(f"Failed to generate summary: {str(e)}")
+        st.error(f"Failed to generate summary :( : {str(e)}")
         st.stop()
 
 st.markdown(f'<div class="summary-box">{summary or "No summary generated."}</div>', unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Follow-up section
 st.markdown('<div class="content-section">', unsafe_allow_html=True)
-st.markdown('<div class="section-header">💬 Ask a Follow-up</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">Ask a Follow Up question!!</div>', unsafe_allow_html=True)
 
 followup = st.text_input("Type your follow-up question:", placeholder="Ask for more details...", key="followup_input")
 
 if st.button("Get Answer", use_container_width=False):
     fu = (followup or "").strip()
     if not fu:
-        st.warning("⚠️ Please enter a follow-up question.")
+        st.warning("Please enter a follow-up question.")
     else:
-        with st.spinner("🤖 Generating answer..."):
+        with st.spinner("Generating answer..."):
             try:
                 ans_text, ans_cited = summ_mod.answer_followup(fu, st.session_state["cached_docs"], st.session_state["original_query"])
             except Exception as e:
                 st.error(f"Failed to generate answer: {str(e)}")
                 st.stop()
 
-        st.markdown("**📌 Answer:**")
+        st.markdown("**Answer:**")
         st.markdown(f'<div class="summary-box">{ans_text or "No answer generated."}</div>', unsafe_allow_html=True)
 
         if ans_cited:
-            st.markdown("**📚 Sources:**")
+            st.markdown("**Sources:**")
             for idx in ans_cited:
                 if 1 <= idx <= len(st.session_state["cached_docs"]):
                     doc = st.session_state["cached_docs"][idx-1]
